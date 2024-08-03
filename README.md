@@ -1,9 +1,12 @@
 # postflop-solver
 
+This is a fork of [b-inary's postflop solver] that I will be maintaining.
+
 > [!IMPORTANT]
 > **As of October 2023, I have started developing a poker solver as a business and have decided to suspend development of this open-source project. See [this issue] for more information.**
 
 [this issue]: https://github.com/b-inary/postflop-solver/issues/46
+[b-inary's postflop solver]: https://github.com/b-inary/postflop-solver
 
 ---
 
