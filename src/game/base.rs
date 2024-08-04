@@ -462,6 +462,21 @@ impl PostFlopGame {
         Ok(())
     }
 
+    pub fn print_internal_data(&self) {
+        println!("Printing intenral data for PostFlopGame");
+        println!("- node_arena:       {}", self.node_arena.len());
+        println!("- storage1:         {}", self.storage1.len());
+        println!("- storage2:         {}", self.storage2.len());
+        println!("- storage_ip:       {}", self.storage_ip.len());
+        println!("- storage_chance:   {}", self.storage_chance.len());
+        println!("- locking_strategy: {}", self.locking_strategy.len());
+        println!("- storage mode:     {:?}", self.storage_mode());
+        println!(
+            "- target storage mode:     {:?}",
+            self.target_storage_mode()
+        );
+    }
+
     /// Initializes fields `initial_weights` and `private_cards`.
     #[inline]
     fn init_hands(&mut self) {
