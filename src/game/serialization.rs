@@ -58,7 +58,13 @@ impl PostFlopGame {
         }
     }
 
-    /// Returns the number of storage elements required for the target storage mode.
+    /// Returns the number of storage elements required for the target storage mode:
+    /// `[|storage1|, |storage2|, |storage_ip|, |storage_chance|]`
+    ///
+    /// If this is a River save (`target_storage_mode == BoardState::River`)
+    /// then do not store cfvalues.
+    ///
+    /// If this is a Flop save,
     fn num_target_storage(&self) -> [usize; 4] {
         if self.state <= State::TreeBuilt {
             return [0; 4];
