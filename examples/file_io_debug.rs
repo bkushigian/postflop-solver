@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use postflop_solver::*;
 
 fn main() {
@@ -77,6 +79,18 @@ fn main() {
     // overwrite the file with the truncated game tree
     // game tree constructed from this file cannot access information after the river deal
     save_data_to_file(&game2, "memo string", "filename.bin", None).unwrap();
+    let (mut game3, _memo_string): (PostFlopGame, String) =
+        load_data_from_file("filename.bin", None).unwrap();
+
+    game.play(0);
+    game.play(0);
+    println!("Game X/X Actions: {:?}", game.available_actions());
+    game2.play(0);
+    game2.play(0);
+    println!("Game2 X/X Actions: {:?}", game.available_actions());
+    game3.play(0);
+    game3.play(0);
+    println!("Game3 X/X Actions: {:?}", game3.available_actions());
 
     // delete the file
     std::fs::remove_file("filename.bin").unwrap();
