@@ -53,7 +53,7 @@ Some storage is allocated in `game::base::allocate_memory`:
     self.storage_chance = vec![0; storage_chance_bytes];
 ```
 
-`node_arena` is initialized in `game::base::init_root()`:
+`node_arena` is allocated in `game::base::init_root()`:
 
 ```rust
     let num_nodes = self.count_num_nodes();
@@ -72,6 +72,48 @@ Some storage is allocated in `game::base::allocate_memory`:
     self.clear_storage();
 ```
 
-### Serialization
+`locking_strategy` maps node indexes (`PostFlopGame::node_index`) to a locked
+strategy.  `locking_strategy` is initialized to an empty `BTreeMap<usize,
+Vec<f32>>` by deriving Default. It is inserted into via
+`PostFlopGame::lock_current_strategy`
 
-Serialization relies on the `bincode` library's `Encode` and `Decode`.
+### Serialization/Deserialization
+
+Serialization relies on the `bincode` library's `Encode` and `Decode`. We can set
+the `target_storage_mode` to allow for a non-full save. For instance,
+
+```rust
+game.set_target_storage_mode(BoardState::Turn);
+```
+
+will ensure that when `game` is encoded, it will only save Flop and Turn data.
+When a serialized tree is deserialized, if it is a parital save (e.g., a Turn
+save) you will not be able to navigate to unsaved streets.
+
+Several things break when we deserialize a partial save:
+- `node_arena` is only partially populated
+- `node.children()` points to raw data when `node` points to an street that is
+  not serialized (e.g., a chance node before the river for a Turn save).
+
+### Allocating `node_arena`
+
+We want to first allocate nodes for `node_arena`, and then run some form of
+`build_tree_recursive`. This assumes that `node_arena` is already allocated, and
+recursively visits children of nodes and modifies them to 
+
+
+### Data Coupling/Relations/Invariants
+
+- A node is locked iff it is contained in the game's locking_strategy
+- `PostFlopGame.node_arena` is pointed to by `PostFlopNode.children_offset`. For
+  instance, this is the basic definition of the `PostFlopNode.children()`
+  function:
+
+  ```rust
+    slice::from_raw_parts(
+        self_ptr.add(self.children_offset as usize),
+        self.num_children as usize,
+    )
+  ```
+
+  We get a pointer to `self` and add children offset.
