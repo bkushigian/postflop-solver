@@ -6,6 +6,60 @@ bearings.
 
 ## PostFlopGame
 
+### Build/Allocate/Initialize
+
+We begin by creating a `PostFlopGame:`
+
+1. **Create Configurations**:
+   + We need a `tree_config: TreeConfig`
+   + We need an `action_tree: ActionTree::new(tree_config)`
+   + We need a `card_config: CardConfig`
+2. **PostFlopGame**: We build a `PostFlopGame` from `action_tree` and `card_config`:
+
+   ```rust
+   let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+   ```
+
+Once the game is created we need to allocate memory:
+
++ `game.node_arena`
++ `game.storage1`
++ `game.storage2`
++ `game.storage_ip`
++ `game.storage_chance`
+
+These fields are not allocated at the same time. `game.node_arena` is allocated
+via `with_config`, which calls `update_config`, which in turn calls `init_root`.
+`init_root` is responsible for:
+
+1. Allocating `PostFlopNode`s in `node_arena`
+2. Invoking `build_tree_recursive` which initializes each node's child/parent
+   relationship via `child_offset` (through calls to ).
+
+Each `PostFlopNode` points to node-specific data (eg., strategies and cfregrets)
+that is located inside of `PostFlopGame.storage*` fields (which is currently
+unallocated) via similarly named fields `PostFlopNode.storage*`.
+
+Additionally, each node points to the children offset with `children_offset`,
+which records where in `node_arena` relative to the current node that node's
+children begin. We allocate this memory via:
+
+```rust
+game.allocate_memory(false);  // pass `true` to use compressed memory
+```
+
+This allocates the following memory:
+
++ `self.storage1`
++ `self.storage2`
++ `self.storage3`
++ `self.storage_chance`
+
+Next, `allocate_memory()` calls `allocate_memory_nodes(&mut self)`, which
+iterates through each node in `node_arena` and sets storage pointers.
+
+After `allocate_memory` returns we still need to set `child_offset`s.
+
 ### Storage
 
 There are several fields marked as `// global storage` in `game::mod::PostFlopGame`:
