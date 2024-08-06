@@ -34,7 +34,8 @@ via `with_config`, which calls `update_config`, which in turn calls `init_root`.
 
 1. Allocating `PostFlopNode`s in `node_arena`
 2. Invoking `build_tree_recursive` which initializes each node's child/parent
-   relationship via `child_offset` (through calls to ).
+   relationship via `child_offset` (through calls to `push_actions` and
+   `push_chances`).
 
 Each `PostFlopNode` points to node-specific data (eg., strategies and cfregrets)
 that is located inside of `PostFlopGame.storage*` fields (which is currently
