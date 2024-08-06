@@ -536,7 +536,7 @@ impl PostFlopGame {
 
     /// Initializes the root node of game tree.
     fn init_root(&mut self) -> Result<(), String> {
-        let num_nodes = self.count_num_nodes();
+        let num_nodes = self.count_nodes_per_street();
         let total_num_nodes = num_nodes[0] + num_nodes[1] + num_nodes[2];
 
         if total_num_nodes > u32::MAX as u64
@@ -599,9 +599,10 @@ impl PostFlopGame {
         self.storage_chance = Vec::new();
     }
 
-    /// Counts the number of nodes in the game tree.
+    /// Counts the number of nodes in the game tree per street, accounting for
+    /// isomorphism.
     #[inline]
-    fn count_num_nodes(&self) -> [u64; 3] {
+    fn count_nodes_per_street(&self) -> [u64; 3] {
         let (turn_coef, river_coef) = match (self.card_config.turn, self.card_config.river) {
             (NOT_DEALT, _) => {
                 let mut river_coef = 0;
