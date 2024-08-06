@@ -82,7 +82,7 @@ pub struct PostFlopGame {
     // store options
     storage_mode: BoardState,
     target_storage_mode: BoardState,
-    num_nodes: [u64; 3],
+    num_nodes_per_street: [u64; 3],
     is_compression_enabled: bool,
     num_storage: u64,
     num_storage_ip: u64,

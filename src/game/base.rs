@@ -545,7 +545,7 @@ impl PostFlopGame {
             return Err("Too many nodes".to_string());
         }
 
-        self.num_nodes = nodes_per_street;
+        self.num_nodes_per_street = nodes_per_street;
         self.node_arena = (0..total_num_nodes)
             .map(|_| MutexLike::new(PostFlopNode::default()))
             .collect::<Vec<_>>();
