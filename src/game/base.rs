@@ -536,8 +536,8 @@ impl PostFlopGame {
 
     /// Initializes the root node of game tree.
     fn init_root(&mut self) -> Result<(), String> {
-        let num_nodes = self.count_nodes_per_street();
-        let total_num_nodes = num_nodes[0] + num_nodes[1] + num_nodes[2];
+        let nodes_per_street = self.count_nodes_per_street();
+        let total_num_nodes = nodes_per_street[0] + nodes_per_street[1] + nodes_per_street[2];
 
         if total_num_nodes > u32::MAX as u64
             || mem::size_of::<PostFlopNode>() as u64 * total_num_nodes > isize::MAX as u64
@@ -545,15 +545,15 @@ impl PostFlopGame {
             return Err("Too many nodes".to_string());
         }
 
-        self.num_nodes = num_nodes;
+        self.num_nodes = nodes_per_street;
         self.node_arena = (0..total_num_nodes)
             .map(|_| MutexLike::new(PostFlopNode::default()))
             .collect::<Vec<_>>();
         self.clear_storage();
 
         let mut info = BuildTreeInfo {
-            turn_index: num_nodes[0] as usize,
-            river_index: (num_nodes[0] + num_nodes[1]) as usize,
+            turn_index: nodes_per_street[0] as usize,
+            river_index: (nodes_per_street[0] + nodes_per_street[1]) as usize,
             ..Default::default()
         };
 
