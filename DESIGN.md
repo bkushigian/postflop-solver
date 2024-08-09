@@ -40,6 +40,7 @@ its values:
 + `game.storage_chance`
 
 These fields are not allocated/initialized at the same time;
+
 + `game.node_arena` is allocated and initialized via `with_config`,
 + other storage is allocated via `game.allocate_memory()`.
 
@@ -109,9 +110,9 @@ These are referenced from `PostFlopNode`:
     storage3: *mut u8, // IP cfvalues
 ```
 
-- `storage1` seems to store the strategy
-- `storage2` seems to store regrets/cfvalues, and
-- `storage3` stores IP's cf values (does that make `storage2` store OOP's cfvalues?)
++ `storage1` seems to store the strategy
++ `storage2` seems to store regrets/cfvalues, and
++ `storage3` stores IP's cf values (does that make `storage2` store OOP's cfvalues?)
 
 Storage is a byte vector `Vec<u8>`, and these store floating point values.
 
@@ -170,8 +171,8 @@ When a serialized tree is deserialized, if it is a parital save (e.g., a Turn
 save) you will not be able to navigate to unsaved streets.
 
 Several things break when we deserialize a partial save:
-- `node_arena` is only partially populated
-- `node.children()` points to raw data when `node` points to an street that is
++ `node_arena` is only partially populated
++ `node.children()` points to raw data when `node` points to an street that is
   not serialized (e.g., a chance node before the river for a Turn save).
 
 ### Allocating `node_arena`
@@ -183,8 +184,8 @@ recursively visits children of nodes and modifies them to
 
 ### Data Coupling/Relations/Invariants
 
-- A node is locked iff it is contained in the game's locking_strategy
-- `PostFlopGame.node_arena` is pointed to by `PostFlopNode.children_offset`. For
++ A node is locked iff it is contained in the game's locking_strategy
++ `PostFlopGame.node_arena` is pointed to by `PostFlopNode.children_offset`. For
   instance, this is the basic definition of the `PostFlopNode.children()`
   function:
 
