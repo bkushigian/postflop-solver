@@ -184,7 +184,7 @@ recursively visits children of nodes and modifies them to
 
 ### Data Coupling/Relations/Invariants
 
-+ A node is locked iff it is contained in the game's locking_strategy
++ A node is locked IFF it is contained in the game's locking_strategy
 + `PostFlopGame.node_arena` is pointed to by `PostFlopNode.children_offset`. For
   instance, this is the basic definition of the `PostFlopNode.children()`
   function:
