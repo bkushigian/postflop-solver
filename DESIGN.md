@@ -12,26 +12,19 @@ To set up a `PostFlopGame` we need to **create a  `PostFlopGame` instance**,
 **allocate global storage and `PostFlopNode`s**, and **initialize the
 `PostFlopNode` child/parent relationship**. This is done in several steps.
 
+We begin by creating a `PostFlopGame` instance.
 
-We begin by creating a `PostFlopGame`. A `PostFlopGame` requires an `ActionTree`
-and a `CardConfig`. The `ActionTree` represents the full game tree modded out by
-different runouts (so an `ActionTree` might have an abstract _line_ **Bet 10;
-Call; Bet 30; Call** while the game tree would have concrete _nodes_ like
-**Bet 10; Call; Th; Bet 30; Call**, etc).
+```rust
+let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+```
 
-1. **Create Configurations**:
-   + We need a `tree_config: TreeConfig`
-   + We need an `action_tree: ActionTree::new(tree_config)`
-   + We need a `card_config: CardConfig`
+A `PostFlopGame` requires an
+`ActionTree` which describes all possible actions and lines (no runout
+information), and a `CardConfig`, which describes player ranges and
+flop/turn/river data.
 
-2. **Create PostFlopGame**: We build a `PostFlopGame` from `action_tree` and `card_config`:
-
-   ```rust
-   let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
-   ```
-
-Once the game is created we need to allocate the following memory and initialize
-its values:
+Once we have created a `PostFlopGame` instance we need to allocate the following
+memory and initialize its values:
 
 + `game.node_arena`
 + `game.storage1`
@@ -39,32 +32,40 @@ its values:
 + `game.storage_ip`
 + `game.storage_chance`
 
-These fields are not allocated/initialized at the same time;
+These fields are not allocated/initialized at the same time:
 
-+ `game.node_arena` is allocated and initialized via `with_config`,
++ `game.node_arena` is allocated and initialized via `with_config()` (i.e., when
+  we created our `PostFlopGame`),
 + other storage is allocated via `game.allocate_memory()`.
 
 #### Allocating and Initializing `node_arena`
 
-We construct a `PostFlopGame` by calling
-`PostFlopGame::with_config(card_config, action_tree)`, which calls
-`update_config`. `PostFlopGame::update_config` sets up configuration data,
-sanity checks things are correct, and then calls `self.init_root()`.
+We constructed a `PostFlopGame` by calling
+`PostFlopGame::with_config(card_config, action_tree)`, which under the hood
+actually calls:
+
+```rust
+    let mut game = Self::new();
+    game.update_config(card_config, action_tree)?;
+```
+
+`PostFlopGame::update_config` sets up configuration data, sanity checks things
+are correct, and then calls `self.init_root()`.
 
 `init_root` is responsible for:
 
-1. Counting number of `PostFlopNode`s to be allocated (`self.num_nodes`), broken
-   up by flop, turn, and river
-2. Allocating `self.num_nodes` `PostFlopNode`s in `node_arena` field
+1. Counting number of `PostFlopNode`s to be allocated (`self.nodes_per_street`),
+   broken up by flop, turn, and river
+2. Allocating `PostFlopNode`s in the `node_arena` field
 3. Clearing storage: `self.clear_storage()` sets each storage item to a new
    `Vec`
 4. Invoking `build_tree_recursive` which initializes each node's child/parent
    relationship via `child_offset` (through calls to `push_actions` and
    `push_chances`).
 
-Each `PostFlopNode` points to node-specific data (eg., strategies and cfregrets)
-that is located inside of `PostFlopGame.storage*` fields (which is currently
-unallocated) via similarly named fields `PostFlopNode.storage*`.
+Each `PostFlopNode` points to node-specific data (e.g., strategies and
+cfregrets) that is located inside of `PostFlopGame.storage*` fields (which is
+currently unallocated) via similarly named fields `PostFlopNode.storage*`.
 
 Additionally, each node points to the children offset with `children_offset`,
 which records where in `node_arena` relative to the current node that node's
@@ -181,7 +182,6 @@ Several things break when we deserialize a partial save:
 We want to first allocate nodes for `node_arena`, and then run some form of
 `build_tree_recursive`. This assumes that `node_arena` is already allocated, and
 recursively visits children of nodes and modifies them to 
-
 
 ### Data Coupling/Relations/Invariants
 
