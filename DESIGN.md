@@ -167,10 +167,11 @@ game.set_target_storage_mode(BoardState::Turn);
 ```
 
 will ensure that when `game` is encoded, it will only save Flop and Turn data.
-When a serialized tree is deserialized, if it is a parital save (e.g., a Turn
+When a serialized tree is deserialized, if it is a partial save (e.g., a Turn
 save) you will not be able to navigate to unsaved streets.
 
 Several things break when we deserialize a partial save:
+
 + `node_arena` is only partially populated
 + `node.children()` points to raw data when `node` points to an street that is
   not serialized (e.g., a chance node before the river for a Turn save).
