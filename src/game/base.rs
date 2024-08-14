@@ -463,7 +463,7 @@ impl PostFlopGame {
     }
 
     pub fn print_internal_data(&self) {
-        println!("Printing intenral data for PostFlopGame");
+        println!("Printing internal data for PostFlopGame");
         println!("- node_arena:       {}", self.node_arena.len());
         println!("- storage1:         {}", self.storage1.len());
         println!("- storage2:         {}", self.storage2.len());
@@ -534,7 +534,15 @@ impl PostFlopGame {
         ) = self.card_config.isomorphism(&self.private_cards);
     }
 
-    /// Initializes the root node of game tree.
+    /// Initializes the root node of game tree and recursively build the tree.
+    ///
+    /// This function is responsible for computing the number of nodes required
+    /// for each street (via `count_nodes_per_street()`), allocating
+    /// `PostFlopNode`s to `self.node_arena`, and calling `build_tree_recursive`,
+    /// which recursively visits all nodes and, among other things, initializes
+    /// the child/parent relation.
+    ///
+    /// This does _not_ allocate global storage (e.g., `self.storage1`, etc).
     fn init_root(&mut self) -> Result<(), String> {
         let nodes_per_street = self.count_nodes_per_street();
         let total_num_nodes = nodes_per_street[0] + nodes_per_street[1] + nodes_per_street[2];
@@ -741,6 +749,7 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
+                    child.parent_node_index = node_index;
                     child.turn = card;
                 }
             }
@@ -804,6 +813,7 @@ impl PostFlopGame {
             child.prev_action = *action;
             child.turn = node.turn;
             child.river = node.river;
+            child.parent_node_index = node_index;
         }
 
         let num_private_hands = self.num_private_hands(node.player as usize);
@@ -815,6 +825,159 @@ impl PostFlopGame {
 
         info.num_storage += node.num_elements as u64;
         info.num_storage_ip += node.num_elements_ip as u64;
+    }
+
+    /* REBUILDING AND RESOLVING TREE */
+
+    /// Like `init_root`, but applied to a partial save loaded from disk. This
+    /// reallocates missing `PostFlopNode`s to `node_arena` and reruns
+    /// `build_tree_recursive`. Rerunning `build_tree_recursive` will not alter
+    /// nodes loaded from disk.
+    pub fn reinit_root(&mut self) -> Result<(), String> {
+        let nodes_per_street = self.count_nodes_per_street();
+        let total_num_nodes = nodes_per_street[0] + nodes_per_street[1] + nodes_per_street[2];
+
+        if total_num_nodes > u32::MAX as u64
+            || mem::size_of::<PostFlopNode>() as u64 * total_num_nodes > isize::MAX as u64
+        {
+            return Err("Too many nodes".to_string());
+        }
+
+        self.num_nodes_per_street = nodes_per_street;
+
+        let total_new_nodes_to_allocate = total_num_nodes - self.node_arena.len() as u64;
+        self.node_arena.append(
+            &mut (0..total_new_nodes_to_allocate)
+                .map(|_| MutexLike::new(PostFlopNode::default()))
+                .collect::<Vec<_>>(),
+        );
+        // self.clear_storage();
+
+        let mut info = BuildTreeInfo {
+            turn_index: nodes_per_street[0] as usize,
+            river_index: (nodes_per_street[0] + nodes_per_street[1]) as usize,
+            ..Default::default()
+        };
+
+        match self.tree_config.initial_state {
+            BoardState::Flop => info.flop_index += 1,
+            BoardState::Turn => info.turn_index += 1,
+            BoardState::River => info.river_index += 1,
+        }
+
+        let mut root = self.node_arena[0].lock();
+        root.turn = self.card_config.turn;
+        root.river = self.card_config.river;
+
+        self.build_tree_recursive(0, &self.action_root.lock(), &mut info);
+
+        self.num_storage = info.num_storage;
+        self.num_storage_ip = info.num_storage_ip;
+        self.num_storage_chance = info.num_storage_chance;
+        self.misc_memory_usage = self.memory_usage_internal();
+
+        Ok(())
+    }
+
+    pub fn reload_and_resolve(&mut self, enable_compression: bool) -> Result<(), String> {
+        self.allocate_memory_after_load(enable_compression)?;
+        self.reinit_root()?;
+
+        // Collect root nodes to resolve
+        let nodes_to_solve = match self.storage_mode {
+            BoardState::Flop => {
+                let turn_root_nodes = self
+                    .node_arena
+                    .iter()
+                    .filter(|n| {
+                        n.lock().turn != NOT_DEALT
+                            && n.lock().river == NOT_DEALT
+                            && matches!(n.lock().prev_action, Action::Chance(..))
+                    })
+                    .collect::<Vec<_>>();
+                turn_root_nodes
+            }
+            BoardState::Turn => {
+                let river_root_nodes = self
+                    .node_arena
+                    .iter()
+                    .filter(|n| {
+                        n.lock().turn != NOT_DEALT
+                            && matches!(n.lock().prev_action, Action::Chance(..))
+                    })
+                    .collect::<Vec<_>>();
+                river_root_nodes
+            }
+            BoardState::River => vec![],
+        };
+        for node in nodes_to_solve {
+            // Get history of this node
+            // let mut history = vec![];
+            let mut n = node.lock();
+            while n.parent_node_index < usize::MAX {
+                let parent = self.node_arena[n.parent_node_index].lock();
+                let action = n.prev_action;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Reallocate memory for full tree after performing a partial load
+    pub fn allocate_memory_after_load(&mut self, enable_compression: bool) -> Result<(), String> {
+        if self.state <= State::Uninitialized {
+            return Err("Game is not successfully initialized".to_string());
+        }
+
+        if self.state == State::MemoryAllocated
+            && self.storage_mode == BoardState::River
+            && self.is_compression_enabled == enable_compression
+        {
+            return Ok(());
+        }
+
+        let num_bytes = if enable_compression { 2 } else { 4 };
+        if num_bytes * self.num_storage > isize::MAX as u64
+            || num_bytes * self.num_storage_chance > isize::MAX as u64
+        {
+            return Err("Memory usage exceeds maximum size".to_string());
+        }
+
+        self.state = State::MemoryAllocated;
+        self.is_compression_enabled = enable_compression;
+
+        let old_storage1 = std::mem::replace(&mut self.storage1, vec![]);
+        let old_storage2 = std::mem::replace(&mut self.storage2, vec![]);
+        let old_storage_ip = std::mem::replace(&mut self.storage_ip, vec![]);
+        let old_storage_chance = std::mem::replace(&mut self.storage_chance, vec![]);
+
+        let storage_bytes = (num_bytes * self.num_storage) as usize;
+        let storage_ip_bytes = (num_bytes * self.num_storage_ip) as usize;
+        let storage_chance_bytes = (num_bytes * self.num_storage_chance) as usize;
+
+        self.storage1 = vec![0; storage_bytes];
+        self.storage2 = vec![0; storage_bytes];
+        self.storage_ip = vec![0; storage_ip_bytes];
+        self.storage_chance = vec![0; storage_chance_bytes];
+
+        self.allocate_memory_nodes();
+
+        self.storage_mode = BoardState::River;
+        self.target_storage_mode = BoardState::River;
+
+        for (dst, src) in self.storage1.iter_mut().zip(&old_storage1) {
+            *dst = *src;
+        }
+        for (dst, src) in self.storage2.iter_mut().zip(&old_storage2) {
+            *dst = *src;
+        }
+        for (dst, src) in self.storage_ip.iter_mut().zip(&old_storage_ip) {
+            *dst = *src;
+        }
+        for (dst, src) in self.storage_chance.iter_mut().zip(&old_storage_chance) {
+            *dst = *src;
+        }
+        Ok(())
     }
 
     /// Sets the bunching effect.
@@ -1004,7 +1167,7 @@ impl PostFlopGame {
 
         if self.card_config.river != NOT_DEALT {
             self.bunching_arena = arena;
-            self.assign_zero_weights();
+            self.assign_zero_weights_to_dead_cards();
             return Ok(());
         }
 
@@ -1119,7 +1282,7 @@ impl PostFlopGame {
 
         if self.card_config.turn != NOT_DEALT {
             self.bunching_arena = arena;
-            self.assign_zero_weights();
+            self.assign_zero_weights_to_dead_cards();
             return Ok(());
         }
 
@@ -1197,7 +1360,7 @@ impl PostFlopGame {
         }
 
         self.bunching_arena = arena;
-        self.assign_zero_weights();
+        self.assign_zero_weights_to_dead_cards();
         Ok(())
     }
 
@@ -1462,5 +1625,9 @@ impl PostFlopGame {
                 ip_counter += num_bytes * node.num_elements_ip as usize;
             }
         }
+    }
+
+    pub fn get_state(&self) -> &State {
+        return &self.state;
     }
 }

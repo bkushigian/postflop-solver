@@ -209,6 +209,7 @@ impl Default for PostFlopNode {
     fn default() -> Self {
         Self {
             prev_action: Action::None,
+            parent_node_index: usize::MAX,
             player: PLAYER_OOP,
             turn: NOT_DEALT,
             river: NOT_DEALT,
@@ -239,5 +240,20 @@ impl PostFlopNode {
                 self.num_children as usize,
             )
         }
+    }
+
+    /// Get a list of available actions at a given node
+    pub fn actions(&self) -> Vec<Action> {
+        self.children()
+            .iter()
+            .map(|n| n.lock().prev_action)
+            .collect::<Vec<Action>>()
+    }
+
+    /// Find the index of a given action, if present
+    pub fn action_index(&self, action: Action) -> Option<usize> {
+        self.children()
+            .iter()
+            .position(|n| n.lock().prev_action == action)
     }
 }

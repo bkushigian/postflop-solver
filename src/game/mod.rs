@@ -17,10 +17,10 @@ use std::collections::BTreeMap;
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(u8)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
-enum State {
+pub enum State {
     ConfigError = 0,
     #[default]
     Uninitialized = 1,
@@ -121,6 +121,7 @@ pub struct PostFlopGame {
 #[repr(C)]
 pub struct PostFlopNode {
     prev_action: Action,
+    parent_node_index: usize,
     player: u8,
     turn: Card,
     river: Card,
