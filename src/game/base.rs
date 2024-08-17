@@ -1,13 +1,14 @@
 use super::*;
 use crate::bunching::*;
 use crate::interface::*;
+use crate::solve_with_node_as_root;
 use crate::utility::*;
 use std::mem::{self, MaybeUninit};
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct BuildTreeInfo {
     flop_index: usize,
     turn_index: usize,
@@ -768,6 +769,7 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
+                    child.parent_node_index = node_index;
                     child.turn = node.turn;
                     child.river = card;
                 }
@@ -845,12 +847,9 @@ impl PostFlopGame {
 
         self.num_nodes_per_street = nodes_per_street;
 
-        let total_new_nodes_to_allocate = total_num_nodes - self.node_arena.len() as u64;
-        self.node_arena.append(
-            &mut (0..total_new_nodes_to_allocate)
-                .map(|_| MutexLike::new(PostFlopNode::default()))
-                .collect::<Vec<_>>(),
-        );
+        self.node_arena = (0..total_num_nodes)
+            .map(|_| MutexLike::new(PostFlopNode::default()))
+            .collect::<Vec<_>>();
         // self.clear_storage();
 
         let mut info = BuildTreeInfo {
@@ -879,64 +878,97 @@ impl PostFlopGame {
         Ok(())
     }
 
-    pub fn reload_and_resolve(&mut self, enable_compression: bool) -> Result<(), String> {
-        self.allocate_memory_after_load(enable_compression)?;
+    pub fn rebuild_and_resolve_forgotten_streets(&mut self) -> Result<(), String> {
+        self.check_card_config()?;
         self.reinit_root()?;
+        self.allocate_memory_after_load()?;
+        self.resolve_reloaded_nodes(1000, 0.01, false)
+    }
 
-        // Collect root nodes to resolve
-        let nodes_to_solve = match self.storage_mode {
+    /// Return the node index for each root of the forgotten gametrees that were
+    /// omitted during a partial save.
+    ///
+    /// When we perform a partial save (e.g., a flop save), we lose
+    /// cfvalues/strategy data for all subtrees rooted at the forgotten street
+    /// (in the case of a flop save, this would be all subtrees rooted at the
+    /// beginning of the turn).
+    ///
+    /// To regain this information we need to resolve each of these subtrees
+    /// individually. This function collects the index of each such root.
+    pub fn collect_unsolved_roots_after_reload(&mut self) -> Result<Vec<usize>, String> {
+        match self.storage_mode {
             BoardState::Flop => {
                 let turn_root_nodes = self
                     .node_arena
                     .iter()
-                    .filter(|n| {
+                    .enumerate()
+                    .filter(|(_, n)| {
                         n.lock().turn != NOT_DEALT
                             && n.lock().river == NOT_DEALT
                             && matches!(n.lock().prev_action, Action::Chance(..))
                     })
+                    .map(|(i, _)| i)
                     .collect::<Vec<_>>();
-                turn_root_nodes
+                Ok(turn_root_nodes)
             }
             BoardState::Turn => {
                 let river_root_nodes = self
                     .node_arena
                     .iter()
-                    .filter(|n| {
+                    .enumerate()
+                    .filter(|(_, n)| {
                         n.lock().turn != NOT_DEALT
                             && matches!(n.lock().prev_action, Action::Chance(..))
                     })
+                    .map(|(i, _)| i)
                     .collect::<Vec<_>>();
-                river_root_nodes
+                Ok(river_root_nodes)
             }
-            BoardState::River => vec![],
-        };
-        for node in nodes_to_solve {
-            // Get history of this node
-            // let mut history = vec![];
-            let mut n = node.lock();
-            while n.parent_node_index < usize::MAX {
-                let parent = self.node_arena[n.parent_node_index].lock();
-                let action = n.prev_action;
-            }
+            BoardState::River => Ok(vec![]),
         }
+    }
+
+    pub fn resolve_reloaded_nodes(
+        &mut self,
+        max_num_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
+    ) -> Result<(), String> {
+        let nodes_to_solve = self.collect_unsolved_roots_after_reload()?;
+        self.state = State::MemoryAllocated;
+        for node_idx in nodes_to_solve {
+            let node = self.node_arena.get(node_idx).ok_or("Invalid node index")?;
+            // let history = node
+            //     .lock()
+            //     .compute_history_recursive(&self)
+            //     .ok_or("Unable to compute history for node".to_string())?
+            //     .to_vec();
+            // self.apply_history(&history);
+            solve_with_node_as_root(
+                self,
+                node.lock(),
+                max_num_iterations,
+                target_exploitability,
+                print_progress,
+            );
+        }
+        finalize(self);
 
         Ok(())
     }
 
-    /// Reallocate memory for full tree after performing a partial load
-    pub fn allocate_memory_after_load(&mut self, enable_compression: bool) -> Result<(), String> {
+    /// Reallocate memory for full tree after performing a partial load. This
+    /// must be called after `init_root()`
+    pub fn allocate_memory_after_load(&mut self) -> Result<(), String> {
         if self.state <= State::Uninitialized {
             return Err("Game is not successfully initialized".to_string());
         }
 
-        if self.state == State::MemoryAllocated
-            && self.storage_mode == BoardState::River
-            && self.is_compression_enabled == enable_compression
-        {
+        if self.state == State::MemoryAllocated && self.storage_mode == BoardState::River {
             return Ok(());
         }
 
-        let num_bytes = if enable_compression { 2 } else { 4 };
+        let num_bytes = if self.is_compression_enabled { 2 } else { 4 };
         if num_bytes * self.num_storage > isize::MAX as u64
             || num_bytes * self.num_storage_chance > isize::MAX as u64
         {
@@ -944,7 +976,7 @@ impl PostFlopGame {
         }
 
         self.state = State::MemoryAllocated;
-        self.is_compression_enabled = enable_compression;
+        // self.is_compression_enabled = self.is_compression_enabled;
 
         let old_storage1 = std::mem::replace(&mut self.storage1, vec![]);
         let old_storage2 = std::mem::replace(&mut self.storage2, vec![]);
@@ -960,7 +992,7 @@ impl PostFlopGame {
         self.storage_ip = vec![0; storage_ip_bytes];
         self.storage_chance = vec![0; storage_chance_bytes];
 
-        self.allocate_memory_nodes();
+        self.allocate_memory_nodes(); // Assign node storage pointers
 
         self.storage_mode = BoardState::River;
         self.target_storage_mode = BoardState::River;
@@ -1595,7 +1627,7 @@ impl PostFlopGame {
         Ok(info)
     }
 
-    /// Allocates memory recursively.
+    /// Assigns allocated storage memory.
     fn allocate_memory_nodes(&mut self) {
         let num_bytes = if self.is_compression_enabled { 2 } else { 4 };
         let mut action_counter = 0;
