@@ -11,6 +11,22 @@ pub(crate) fn mul_slice(lhs: &mut [f32], rhs: &[f32]) {
     lhs.iter_mut().zip(rhs).for_each(|(l, r)| *l *= *r);
 }
 
+/// Divides each element of the left-hand side (`lhs`) slice by the
+/// corresponding element of the right-hand side (`rhs`) slice, modifying the
+/// `lhs` slice in place.  If an element in `rhs` is zero, the corresponding
+/// element in `lhs` is set to a specified `default` value instead of performing
+/// the division.
+///
+/// # Arguments
+///
+/// - `lhs`: A mutable reference to the left-hand side slice, which will be
+///   modified in place. Each element of this slice is divided by the
+///   corresponding element in the `rhs` slice, or set to `default` if the
+///   corresponding element in `rhs` is zero.
+/// - `rhs`: A reference to the right-hand side slice, which provides the
+///   divisor for each element in `lhs`.
+/// - `default: f32`: A fallback value that is used for elements in `lhs` where
+///   the corresponding element in `rhs` is zero.
 #[inline]
 pub(crate) fn div_slice(lhs: &mut [f32], rhs: &[f32], default: f32) {
     lhs.iter_mut()
@@ -18,6 +34,22 @@ pub(crate) fn div_slice(lhs: &mut [f32], rhs: &[f32], default: f32) {
         .for_each(|(l, r)| *l = if is_zero(*r) { default } else { *l / *r });
 }
 
+/// Divides each element of the left-hand side (`lhs`) slice by the
+/// corresponding element of the right-hand side (`rhs`) slice, modifying the
+/// `lhs` slice in place.  If an element in `rhs` is zero, the corresponding
+/// element in `lhs` is set to a specified `default` value instead of performing
+/// the division.
+///
+/// # Arguments
+///
+/// - `lhs`: A mutable reference to the left-hand side slice, which will be
+///   modified in place. Each element of this slice is divided by the
+///   corresponding element in the `rhs` slice, or set to `default` if the
+///   corresponding element in `rhs` is zero.
+/// - `rhs`: A reference to the right-hand side slice, which provides the
+///   divisor for each element in `lhs`.
+/// - `default: f32`: A fallback value that is used for elements in `lhs` where
+///   the corresponding element in `rhs` is zero.
 #[inline]
 pub(crate) fn div_slice_uninit(
     dst: &mut [MaybeUninit<f32>],
