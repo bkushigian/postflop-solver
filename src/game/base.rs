@@ -1254,7 +1254,7 @@ impl PostFlopGame {
 
                         let player_swap = swap_option.map(|swap| {
                             let mut tmp = (0..player_len).collect::<Vec<_>>();
-                            apply_swap(&mut tmp, &swap[player]);
+                            apply_swap_list(&mut tmp, &swap[player]);
                             tmp
                         });
 
@@ -1276,8 +1276,8 @@ impl PostFlopGame {
                             let slices = if let Some(swap) = swap_option {
                                 tmp.0.extend_from_slice(&arena[index..index + opponent_len]);
                                 tmp.1.extend_from_slice(opponent_strength);
-                                apply_swap(&mut tmp.0, &swap[player ^ 1]);
-                                apply_swap(&mut tmp.1, &swap[player ^ 1]);
+                                apply_swap_list(&mut tmp.0, &swap[player ^ 1]);
+                                apply_swap_list(&mut tmp.1, &swap[player ^ 1]);
                                 (tmp.0.as_slice(), &tmp.1)
                             } else {
                                 (&arena[index..index + opponent_len], opponent_strength)
@@ -1348,7 +1348,7 @@ impl PostFlopGame {
 
                 let player_swap = swap_option.map(|swap| {
                     let mut tmp = (0..player_len).collect::<Vec<_>>();
-                    apply_swap(&mut tmp, &swap[player]);
+                    apply_swap_list(&mut tmp, &swap[player]);
                     tmp
                 });
 
@@ -1365,7 +1365,7 @@ impl PostFlopGame {
                     let slice = &arena[index..index + opponent_len];
                     let slice = if let Some(swap) = swap_option {
                         tmp.extend_from_slice(slice);
-                        apply_swap(&mut tmp, &swap[player ^ 1]);
+                        apply_swap_list(&mut tmp, &swap[player ^ 1]);
                         &tmp
                     } else {
                         slice

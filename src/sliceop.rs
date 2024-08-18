@@ -1,11 +1,31 @@
 use crate::utility::*;
 use std::mem::MaybeUninit;
 
+/// Subtracts each element of the left-hand side (`lhs`) slice by the
+/// corresponding element of the right-hand side (`rhs`) slice, modifying the
+/// `lhs` slice in place.
+///
+/// # Arguments
+///
+/// - `lhs`: A mutable reference to the left-hand side slice, which will be
+///   modified in place.
+/// - `rhs`: A reference to the right-hand side slice, which provides the
+///   values to be subtracted from each corresponding element in `lhs`.
 #[inline]
 pub(crate) fn sub_slice(lhs: &mut [f32], rhs: &[f32]) {
     lhs.iter_mut().zip(rhs).for_each(|(l, r)| *l -= *r);
 }
 
+/// Multiplies each element of the left-hand side (`lhs`) slice by the
+/// corresponding element of the right-hand side (`rhs`) slice, modifying the
+/// `lhs` slice in place.
+///
+/// # Arguments
+///
+/// - `lhs`: A mutable reference to the left-hand side slice, which will be
+///   modified in place.
+/// - `rhs`: A reference to the right-hand side slice, which provides the
+///   values to be multiplied against each corresponding element in `lhs`.
 #[inline]
 pub(crate) fn mul_slice(lhs: &mut [f32], rhs: &[f32]) {
     lhs.iter_mut().zip(rhs).for_each(|(l, r)| *l *= *r);
@@ -127,6 +147,40 @@ pub(crate) fn sum_slices_f64_uninit<'a>(
     dst
 }
 
+/// Performs a fused multiply-add (FMA) operation on slices, storing the result
+/// in a destination slice.
+///
+/// This function multiplies the first `dst.len()` corresponding elements of the
+/// two source slices (`src1` and `src2`) and stores the results in the
+/// destination slice (`dst`).  After the initial multiplication, it continues
+/// to perform additional multiply-add operations using subsequent chunks of
+/// `src1` and `src2`, adding the products to the already computed values in
+/// `dst`.
+///
+/// # Arguments
+///
+/// - `dst`: A mutable reference to a slice of uninitialized memory where the
+///   results will be stored. The length of this slice dictates how many
+///   elements are processed in the initial operation.
+/// - `src1`: A reference to the first source slice, providing the
+///   multiplicands.
+/// - `src2`: A reference to the second source slice, providing the multipliers.
+///
+/// # Returns
+///
+/// A mutable reference to the `dst` slice, now reinterpreted as a fully
+/// initialized slice of `f32` values, containing the results of the fused
+/// multiply-add operations.
+///
+/// # Safety
+///
+/// - This function assumes that the length of `dst` is equal to or less than
+///   the length of `src1` and `src2`. If the lengths are mismatched, the function
+///   might cause undefined behavior due to out-of-bounds memory access.
+/// - The function uses unsafe code to cast the `MaybeUninit<f32>` slice into a
+///   `f32` slice after initialization. This is safe only if the `dst` slice is
+///   properly initialized with valid `f32` values, as is ensured by the
+///   function's implementation.
 #[inline]
 pub(crate) fn fma_slices_uninit<'a>(
     dst: &'a mut [MaybeUninit<f32>],
