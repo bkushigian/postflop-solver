@@ -259,11 +259,27 @@ pub(crate) fn inner_product_cond(
     acc.iter().sum::<f64>() as f32
 }
 
+/// Extract a reference to a specific "row" from a one-dimensional slice, where
+/// the data is conceptually arranged as a two-dimensional array.
+///
+/// # Arguments
+///
+/// * `slice` - slice to extract a reference from
+/// * `index` - the index of the conceptual "row" to reference
+/// * `row_size` - the size of the conceptual "row" to reference
 #[inline]
 pub(crate) fn row<T>(slice: &[T], index: usize, row_size: usize) -> &[T] {
     &slice[index * row_size..(index + 1) * row_size]
 }
 
+/// Extract a mutable reference to a specific "row" from a one-dimensional
+/// slice, where the data is conceptually arranged as a two-dimensional array.
+///
+/// # Arguments
+///
+/// * `slice` - slice to extract a mutable reference from
+/// * `index` - the index of the conceptual "row" to reference
+/// * `row_size` - the size of the conceptual "row" to reference
 #[inline]
 pub(crate) fn row_mut<T>(slice: &mut [T], index: usize, row_size: usize) -> &mut [T] {
     &mut slice[index * row_size..(index + 1) * row_size]
