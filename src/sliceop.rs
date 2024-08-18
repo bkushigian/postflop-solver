@@ -32,6 +32,7 @@ pub(crate) fn div_slice_uninit(
         });
 }
 
+/// Multiply a source slice by a scalar and store in a destination slice
 #[inline]
 pub(crate) fn mul_slice_scalar_uninit(dst: &mut [MaybeUninit<f32>], src: &[f32], scalar: f32) {
     dst.iter_mut().zip(src).for_each(|(d, s)| {
@@ -39,6 +40,17 @@ pub(crate) fn mul_slice_scalar_uninit(dst: &mut [MaybeUninit<f32>], src: &[f32],
     });
 }
 
+/// Compute a _strided summation_ of `f32` elements in `src`, where the stride
+/// length is `dst.len()`.
+///
+/// In more detail, break source slice `src` into `N` chunks `C0...CN-1`, where
+/// `N = dst.len()`, and set the `i`th element of `dst` to be the sum of the
+/// `i`th element of each chunk `Ck`:
+///
+/// - `dst[0] = SUM(k=0..N-1, Ck[0])`
+/// - `dst[1] = SUM(k=0..N-1, Ck[1])`
+/// - `dst[2] = SUM(k=0..N-1, Ck[2])`
+/// - ...
 #[inline]
 pub(crate) fn sum_slices_uninit<'a>(dst: &'a mut [MaybeUninit<f32>], src: &[f32]) -> &'a mut [f32] {
     let len = dst.len();
@@ -54,6 +66,17 @@ pub(crate) fn sum_slices_uninit<'a>(dst: &'a mut [MaybeUninit<f32>], src: &[f32]
     dst
 }
 
+/// Compute a _strided summation_ of `f64` elements in `src`, where the stride
+/// length is `dst.len()`.
+///
+/// In more detail, break source slice `src` into `N` chunks `C0...CN-1`, where
+/// `N = dst.len()`, and set the `i`th element of `dst` to be the sum of the
+/// `i`th element of each chunk `Ck`:
+///
+/// - `dst[0] = SUM(k=0..N-1, Ck[0])`
+/// - `dst[1] = SUM(k=0..N-1, Ck[1])`
+/// - `dst[2] = SUM(k=0..N-1, Ck[2])`
+/// - ...
 #[inline]
 pub(crate) fn sum_slices_f64_uninit<'a>(
     dst: &'a mut [MaybeUninit<f64>],
