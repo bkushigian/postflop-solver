@@ -171,16 +171,6 @@ pub(crate) fn sum_slices_f64_uninit<'a>(
 /// A mutable reference to the `dst` slice, now reinterpreted as a fully
 /// initialized slice of `f32` values, containing the results of the fused
 /// multiply-add operations.
-///
-/// # Safety
-///
-/// - This function assumes that the length of `dst` is equal to or less than
-///   the length of `src1` and `src2`. If the lengths are mismatched, the function
-///   might cause undefined behavior due to out-of-bounds memory access.
-/// - The function uses unsafe code to cast the `MaybeUninit<f32>` slice into a
-///   `f32` slice after initialization. This is safe only if the `dst` slice is
-///   properly initialized with valid `f32` values, as is ensured by the
-///   function's implementation.
 #[inline]
 pub(crate) fn fma_slices_uninit<'a>(
     dst: &'a mut [MaybeUninit<f32>],
