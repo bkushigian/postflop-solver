@@ -66,8 +66,8 @@ pub(crate) fn sum_slices_uninit<'a>(dst: &'a mut [MaybeUninit<f32>], src: &[f32]
     dst
 }
 
-/// Compute a _strided summation_ of `f64` elements in `src`, where the stride
-/// length is `dst.len()`.
+/// Compute a _strided summation_ of `f32` elements in `src`, where the stride
+/// length is `dst.len()`, and store as `f64` in `dst`.
 ///
 /// In more detail, break source slice `src` into `N` chunks `C0...CN-1`, where
 /// `N = dst.len()`, and set the `i`th element of `dst` to be the sum of the
