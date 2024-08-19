@@ -243,7 +243,27 @@ fn solve_recursive<T: Game>(
             r.write(v as f32);
         });
     }
-    // if the current player is `player`
+    // IF THE CURRENT PLAYER IS `player`:
+    //
+    // 1. Recursively compute cfvalues for each action/hand combination with
+    //    `solve_recursive`.
+    //    - `cfvalues` for action index `action` are stored in `cfv_actions` in
+    //      row `action`
+    //    - In particular, `cfv_actions[a * #(num_hands) + h]` gives the cfvalue
+    //      for hand `h` taking action `a`
+    // 2. Compute the strategy using regret matching (`regret_matching` or
+    //   `regret_matching_compressed`)
+    // 3. Apply any node locking
+    // 4. Compute the cfvalues for each hand (that is, accumulate
+    //    across different actions taken). This is handled separately if
+    //    the game is compressed or not.
+    //    1. Update the cumulative strategy with the new strategy, using
+    //       `params.gamma_t` to discount previous cumulative strategy
+    //    2. Update the cumulative regret using `params.alpha_t` and
+    //       `beta.alpha_t`
+    //    - Question: strategy is not normalized: why?
+    //    - Question: we are subtracting `result` from `row` (rows of
+    //      `cum_regret`): why?
     else if node.player() == player {
         // compute the counterfactual values of each action
         for_each_child(node, |action| {
@@ -270,12 +290,9 @@ fn solve_recursive<T: Game>(
 
         // Compute the counterfactual values for each hand, which for hand `h` is
         // computed to be the sum over actions `a` of the frequency with which
-        // `h` takes action `a` and the regret of hand `h` taking action `a`.
-        // In pseudocode, this is:
+        // `h` takes action `a` times the regret of hand `h` taking action `a`:
         //
-        // ```
-        // result[h] = sum([freq(h, a) * regret(h, a) for a in actions])
-        // ```
+        //     result[h] = sum([freq(h, a) * regret(h, a) for a in actions])
         //
         // This sum-of-products us computed as a fused multiply-add using
         // `fma_slices_uninit` and is stored in `result`.
