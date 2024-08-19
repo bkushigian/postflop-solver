@@ -847,25 +847,6 @@ impl PostFlopGame {
         ret
     }
 
-    pub fn strategy_by_private_hand(&self) -> Vec<Vec<f32>> {
-        let strat = self.strategy();
-        let player = self.current_player();
-        let num_hands = self.private_cards(player).len();
-        let num_actions = self.available_actions().len();
-        assert!(num_hands * num_actions == strat.len());
-        let mut strat_by_hand: Vec<Vec<f32>> = Vec::with_capacity(num_hands);
-        for j in 0..num_hands {
-            strat_by_hand.push(Vec::with_capacity(num_actions));
-        }
-
-        for i in 0..num_actions {
-            for j in 0..num_hands {
-                strat_by_hand[j].push(strat[i * num_hands + j]);
-            }
-        }
-        strat_by_hand
-    }
-
     /// Returns the total bet amount of each player (OOP, IP).
     #[inline]
     pub fn total_bet_amount(&self) -> [i32; 2] {
