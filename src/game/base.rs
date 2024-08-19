@@ -462,21 +462,6 @@ impl PostFlopGame {
         Ok(())
     }
 
-    pub fn print_internal_data(&self) {
-        println!("Printing internal data for PostFlopGame");
-        println!("- node_arena:       {}", self.node_arena.len());
-        println!("- storage1:         {}", self.storage1.len());
-        println!("- storage2:         {}", self.storage2.len());
-        println!("- storage_ip:       {}", self.storage_ip.len());
-        println!("- storage_chance:   {}", self.storage_chance.len());
-        println!("- locking_strategy: {}", self.locking_strategy.len());
-        println!("- storage mode:     {:?}", self.storage_mode());
-        println!(
-            "- target storage mode:     {:?}",
-            self.target_storage_mode()
-        );
-    }
-
     /// Initializes fields `initial_weights` and `private_cards`.
     #[inline]
     fn init_hands(&mut self) {
@@ -749,7 +734,6 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
-                    child.parent_node_index = node_index;
                     child.turn = card;
                 }
             }
@@ -768,7 +752,6 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
-                    child.parent_node_index = node_index;
                     child.turn = node.turn;
                     child.river = card;
                 }
@@ -814,7 +797,6 @@ impl PostFlopGame {
             child.prev_action = *action;
             child.turn = node.turn;
             child.river = node.river;
-            child.parent_node_index = node_index;
         }
 
         let num_private_hands = self.num_private_hands(node.player as usize);
