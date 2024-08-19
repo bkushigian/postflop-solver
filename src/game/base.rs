@@ -902,27 +902,16 @@ impl PostFlopGame {
 
     pub fn resolve_reloaded_nodes(
         &mut self,
-        max_num_iterations: u32,
-        target_exploitability: f32,
-        print_progress: bool,
+        _max_num_iterations: u32,
+        _target_exploitability: f32,
+        _print_progress: bool,
     ) -> Result<(), String> {
         let nodes_to_solve = self.collect_unsolved_roots_after_reload()?;
         self.state = State::MemoryAllocated;
         for node_idx in nodes_to_solve {
-            let node = self.node_arena.get(node_idx).ok_or("Invalid node index")?;
-            // let history = node
-            //     .lock()
-            //     .compute_history_recursive(&self)
-            //     .ok_or("Unable to compute history for node".to_string())?
-            //     .to_vec();
-            // self.apply_history(&history);
-            solve_with_node_as_root(
-                self,
-                node.lock(),
-                max_num_iterations,
-                target_exploitability,
-                print_progress,
-            );
+            let _node = self.node_arena.get(node_idx).ok_or("Invalid node index")?;
+            // TODO: Get and Apply History
+            // TODO: Solve with node as root
         }
         finalize(self);
 

@@ -132,6 +132,75 @@ pub fn solve_step<T: Game>(game: &T, current_iteration: u32) {
     }
 }
 
+/// Performs Discounted CFR algorithm until the given number of iterations or exploitability is
+/// satisfied.
+///
+/// This method returns the exploitability of the obtained strategy.
+/// TODO: Should we move this to the `crate::base` module?
+pub fn solve_with_node_as_root<T: Game>(
+    game: &mut T,
+    mut root: MutexGuardLike<T::Node>,
+    max_num_iterations: u32,
+    target_exploitability: f32,
+    print_progress: bool,
+) -> f32 {
+    if game.is_solved() {
+        panic!("Game is already solved");
+    }
+
+    if !game.is_ready() {
+        panic!("Game is not ready");
+    }
+
+    let mut exploitability = compute_exploitability(game);
+
+    if print_progress {
+        print!("iteration: 0 / {max_num_iterations} ");
+        print!("(exploitability = {exploitability:.4e})");
+        io::stdout().flush().unwrap();
+    }
+
+    for t in 0..max_num_iterations {
+        if exploitability <= target_exploitability {
+            break;
+        }
+
+        let params = DiscountParams::new(t);
+
+        // alternating updates
+        for player in 0..2 {
+            let mut result = Vec::with_capacity(game.num_private_hands(player));
+            solve_recursive(
+                result.spare_capacity_mut(),
+                game,
+                &mut root,
+                player,
+                game.initial_weights(player ^ 1),
+                &params,
+            );
+        }
+
+        if (t + 1) % 10 == 0 || t + 1 == max_num_iterations {
+            exploitability = compute_exploitability(game);
+        }
+
+        if print_progress {
+            print!("\riteration: {} / {} ", t + 1, max_num_iterations);
+            print!("(exploitability = {exploitability:.4e})");
+            io::stdout().flush().unwrap();
+        }
+    }
+
+    if print_progress {
+        println!();
+        io::stdout().flush().unwrap();
+    }
+
+    finalize(game);
+
+    exploitability
+}
+
 /// Recursively solves the counterfactual values.
 fn solve_recursive<T: Game>(
     result: &mut [MaybeUninit<f32>],
