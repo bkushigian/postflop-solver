@@ -209,6 +209,7 @@ impl Default for PostFlopNode {
     fn default() -> Self {
         Self {
             prev_action: Action::None,
+            parent_node_index: usize::MAX,
             player: PLAYER_OOP,
             turn: NOT_DEALT,
             river: NOT_DEALT,
