@@ -240,4 +240,31 @@ impl PostFlopNode {
             )
         }
     }
+
+    /// Get a list of available actions at a given node
+    pub fn actions(&self) -> Vec<Action> {
+        self.children()
+            .iter()
+            .map(|n| n.lock().prev_action)
+            .collect::<Vec<Action>>()
+    }
+
+    /// Find the index of a given action, if present
+    pub fn action_index(&self, action: Action) -> Option<usize> {
+        self.children()
+            .iter()
+            .position(|n| n.lock().prev_action == action)
+    }
+
+    /// Recursively compute the current node's history
+    pub fn compute_history_recursive(&self, game: &PostFlopGame) -> Option<Vec<usize>> {
+        if self.parent_node_index == usize::MAX {
+            Some(vec![])
+        } else {
+            let p = game.node_arena.get(self.parent_node_index)?;
+            let mut history = p.lock().compute_history_recursive(game)?;
+            history.push(p.lock().action_index(self.prev_action)?);
+            Some(history)
+        }
+    }
 }
