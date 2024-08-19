@@ -763,7 +763,6 @@ impl PostFlopGame {
                 node.cfvalues_ip().to_vec()
             }
         } else if player == self.current_player() {
-            println!("BINGO");
             have_actions = true;
             if self.is_compression_enabled {
                 let slice = node.cfvalues_compressed();
