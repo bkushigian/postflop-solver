@@ -820,7 +820,7 @@ impl PostFlopGame {
     /// `build_tree_recursive`. Rerunning `build_tree_recursive` will not alter
     /// nodes loaded from disk.
     pub fn reinit_root(&mut self) -> Result<(), String> {
-        let nodes_per_street = self.count_num_nodes();
+        let nodes_per_street = self.count_nodes_per_street();
         let total_num_nodes = nodes_per_street[0] + nodes_per_street[1] + nodes_per_street[2];
 
         if total_num_nodes > u32::MAX as u64
@@ -829,7 +829,7 @@ impl PostFlopGame {
             return Err("Too many nodes".to_string());
         }
 
-        self.num_nodes = nodes_per_street;
+        self.num_nodes_per_street = nodes_per_street;
 
         self.node_arena = (0..total_num_nodes)
             .map(|_| MutexLike::new(PostFlopNode::default()))
