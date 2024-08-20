@@ -30,7 +30,7 @@ impl PostFlopGame {
 
         self.weights[0].copy_from_slice(&self.initial_weights[0]);
         self.weights[1].copy_from_slice(&self.initial_weights[1]);
-        self.assign_zero_weights();
+        self.assign_zero_weights_to_dead_cards();
     }
 
     /// Returns the history of the current node.
@@ -366,7 +366,7 @@ impl PostFlopGame {
             }
 
             // update the weights
-            self.assign_zero_weights();
+            self.assign_zero_weights_to_dead_cards();
         }
         // player node
         else {
@@ -1016,8 +1016,9 @@ impl PostFlopGame {
         unsafe { node_ptr.offset_from(self.node_arena.as_ptr()) as usize }
     }
 
-    /// Assigns zero weights to the hands that are not possible.
-    pub(super) fn assign_zero_weights(&mut self) {
+    /// Assigns zero weights to the hands that are not possible (e.g, by a card
+    /// being removed by a turn or river).
+    pub(super) fn assign_zero_weights_to_dead_cards(&mut self) {
         if self.bunching_num_dead_cards == 0 {
             let mut board_mask: u64 = 0;
             if self.turn != NOT_DEALT {

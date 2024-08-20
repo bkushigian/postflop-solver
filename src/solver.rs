@@ -9,8 +9,11 @@ use std::mem::MaybeUninit;
 use crate::alloc::*;
 
 struct DiscountParams {
+    // coefficient for accumulated positive regrets
     alpha_t: f32,
+    // coefficient for accumulated negative regrets
     beta_t: f32,
+    // contributions to average strategy
     gamma_t: f32,
 }
 
@@ -201,7 +204,19 @@ pub fn solve_with_node_as_root<T: Game>(
     exploitability
 }
 
-/// Recursively solves the counterfactual values.
+/// Recursively solves the counterfactual values and store them in `result`.
+///
+/// # Arguments
+///
+/// * `result` - slice to store resulting counterfactual regret values
+/// * `game` - reference to the game we are solving
+/// * `node` - current node we are solving
+/// * `player` - current player we are solving for
+/// * `cfreach` - the probability of reaching this point with a particular private hand
+/// * `params` - the DiscountParams that parametrize the solver
+///
+/// This modifies `node`'s strategies and regrets when `node.player() ==
+/// player`.
 fn solve_recursive<T: Game>(
     result: &mut [MaybeUninit<f32>],
     game: &T,
@@ -226,11 +241,18 @@ fn solve_recursive<T: Game>(
         return;
     }
 
-    // allocate memory for storing the counterfactual values
+    // Allocate memory for storing the counterfactual values. Conceptually this
+    // is a `num_actions * num_hands` 2-dimensional array, where the `i`th
+    // row (which has length `num_hands`) corresponds to the cfvalues of each
+    // hand after taking the `i`th action.
+    //
+    // Rows are obtained using operations from `sliceop` (e.g., `sliceop::row_mut()`).
+    //
+    // `cfv_actions` will be written to by recursive calls to `solve_recursive`.
     #[cfg(feature = "custom-alloc")]
     let cfv_actions = MutexLike::new(Vec::with_capacity_in(num_actions * num_hands, StackAlloc));
     #[cfg(not(feature = "custom-alloc"))]
-    let cfv_actions = MutexLike::new(Vec::with_capacity(num_actions * num_hands));
+    let cfv_actions_hands = MutexLike::new(Vec::with_capacity(num_actions * num_hands));
 
     // if the `node` is chance
     if node.is_chance() {
@@ -249,7 +271,11 @@ fn solve_recursive<T: Game>(
         // compute the counterfactual values of each action
         for_each_child(node, |action| {
             solve_recursive(
-                row_mut(cfv_actions.lock().spare_capacity_mut(), action, num_hands),
+                row_mut(
+                    cfv_actions_hands.lock().spare_capacity_mut(),
+                    action,
+                    num_hands,
+                ),
                 game,
                 &mut node.play(action),
                 player,
@@ -258,14 +284,16 @@ fn solve_recursive<T: Game>(
             );
         });
 
-        // use 64-bit floating point values
+        // use 64-bit floating point values for precision during summations
+        // before demoting back to f32
         #[cfg(feature = "custom-alloc")]
         let mut result_f64 = Vec::with_capacity_in(num_hands, StackAlloc);
         #[cfg(not(feature = "custom-alloc"))]
         let mut result_f64 = Vec::with_capacity(num_hands);
 
-        // sum up the counterfactual values
-        let mut cfv_actions = cfv_actions.lock();
+        // compute the strided summation of the counterfactual values for each
+        // hand and store in `result_f64`
+        let mut cfv_actions = cfv_actions_hands.lock();
         unsafe { cfv_actions.set_len(num_actions * num_hands) };
         sum_slices_f64_uninit(result_f64.spare_capacity_mut(), &cfv_actions);
         unsafe { result_f64.set_len(num_hands) };
@@ -278,25 +306,49 @@ fn solve_recursive<T: Game>(
             let swap_list = &game.isomorphic_swap(node, i)[player];
             let tmp = row_mut(&mut cfv_actions, isomorphic_index as usize, num_hands);
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
 
             result_f64.iter_mut().zip(&*tmp).for_each(|(r, &v)| {
                 *r += v as f64;
             });
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
         }
 
         result.iter_mut().zip(&result_f64).for_each(|(r, &v)| {
             r.write(v as f32);
         });
     }
-    // if the current player is `player`
+    // IF THE CURRENT PLAYER IS `player`:
+    //
+    // 1. Recursively compute cfvalues for each action/hand combination with
+    //    `solve_recursive`.
+    //    - `cfvalues` for action index `action` are stored in `cfv_actions` in
+    //      row `action`
+    //    - In particular, `cfv_actions[a * #(num_hands) + h]` gives the cfvalue
+    //      for hand `h` taking action `a`
+    // 2. Compute the strategy using regret matching (`regret_matching` or
+    //   `regret_matching_compressed`)
+    // 3. Apply any node locking
+    // 4. Compute the cfvalues for each hand (that is, accumulate
+    //    across different actions taken). This is handled separately if
+    //    the game is compressed or not.
+    //    1. Update the cumulative strategy with the new strategy, using
+    //       `params.gamma_t` to discount previous cumulative strategy
+    //    2. Update the cumulative regret using `params.alpha_t` and
+    //       `beta.alpha_t`
+    //    - Question: strategy is not normalized: why?
+    //    - Question: we are subtracting `result` from `row` (rows of
+    //      `cum_regret`): why?
     else if node.player() == player {
         // compute the counterfactual values of each action
         for_each_child(node, |action| {
             solve_recursive(
-                row_mut(cfv_actions.lock().spare_capacity_mut(), action, num_hands),
+                row_mut(
+                    cfv_actions_hands.lock().spare_capacity_mut(),
+                    action,
+                    num_hands,
+                ),
                 game,
                 &mut node.play(action),
                 player,
@@ -305,7 +357,7 @@ fn solve_recursive<T: Game>(
             );
         });
 
-        // compute the strategy by regret-maching algorithm
+        // compute the strategy by regret-matching algorithm
         let mut strategy = if game.is_compression_enabled() {
             regret_matching_compressed(node.regrets_compressed(), num_actions)
         } else {
@@ -316,10 +368,20 @@ fn solve_recursive<T: Game>(
         let locking = game.locking_strategy(node);
         apply_locking_strategy(&mut strategy, locking);
 
-        // sum up the counterfactual values
-        let mut cfv_actions = cfv_actions.lock();
-        unsafe { cfv_actions.set_len(num_actions * num_hands) };
-        let result = fma_slices_uninit(result, &strategy, &cfv_actions);
+        // Compute the counterfactual values for each hand by 'fusing' together
+        // hands' cfvs across all actions.
+        //
+        // For hand `h` this is computed to be the sum over actions `a` of the
+        // frequency with which `h` takes action `a` times the regret of hand
+        // `h` taking action `a`:
+        //
+        //     result[h] = sum([freq(h, a) * regret(h, a) for a in actions])
+        //
+        // This sum-of-products us computed as a fused multiply-add using
+        // `fma_slices_uninit` and is stored in `result`.
+        let mut cfv_actions_hands = cfv_actions_hands.lock();
+        unsafe { cfv_actions_hands.set_len(num_actions * num_hands) };
+        let cfv_hands = fma_slices_uninit(result, &strategy, &cfv_actions_hands);
 
         if game.is_compression_enabled() {
             // update the cumulative strategy
@@ -348,48 +410,72 @@ fn solve_recursive<T: Game>(
             let beta_decoder = params.beta_t * scale / i16::MAX as f32;
             let cum_regret = node.regrets_compressed_mut();
 
-            cfv_actions.iter_mut().zip(&*cum_regret).for_each(|(x, y)| {
-                *x += *y as f32 * if *y >= 0 { alpha_decoder } else { beta_decoder };
-            });
+            cfv_actions_hands
+                .iter_mut()
+                .zip(&*cum_regret)
+                .for_each(|(x, y)| {
+                    *x += *y as f32 * if *y >= 0 { alpha_decoder } else { beta_decoder };
+                });
 
-            cfv_actions.chunks_exact_mut(num_hands).for_each(|row| {
-                sub_slice(row, result);
-            });
+            cfv_actions_hands
+                .chunks_exact_mut(num_hands)
+                .for_each(|row| {
+                    sub_slice(row, cfv_hands);
+                });
 
             if !locking.is_empty() {
-                cfv_actions.iter_mut().zip(locking).for_each(|(d, s)| {
-                    if s.is_sign_positive() {
-                        *d = 0.0;
-                    }
-                })
+                cfv_actions_hands
+                    .iter_mut()
+                    .zip(locking)
+                    .for_each(|(d, s)| {
+                        if s.is_sign_positive() {
+                            *d = 0.0;
+                        }
+                    })
             }
 
-            let new_scale = encode_signed_slice(cum_regret, &cfv_actions);
+            let new_scale = encode_signed_slice(cum_regret, &cfv_actions_hands);
             node.set_regret_scale(new_scale);
         } else {
-            // update the cumulative strategy
+            // update the node's cumulative strategy (`node.strategy_mut()`)
+            // - `gamma` is used to discount cumulative strategy contributions
             let gamma = params.gamma_t;
             let cum_strategy = node.strategy_mut();
             cum_strategy.iter_mut().zip(&strategy).for_each(|(x, y)| {
                 *x = *x * gamma + *y;
             });
 
-            // update the cumulative regret
+            // update the node's cumulative regret `node.regrets_mut()`
+            // - alpha is used to discount positive cumulative regrets
+            // - beta is used to discount negative cumulative regrets
             let (alpha, beta) = (params.alpha_t, params.beta_t);
             let cum_regret = node.regrets_mut();
-            cum_regret.iter_mut().zip(&*cfv_actions).for_each(|(x, y)| {
-                let coef = if x.is_sign_positive() { alpha } else { beta };
-                *x = *x * coef + *y;
-            });
+            cum_regret
+                .iter_mut()
+                .zip(&*cfv_actions_hands)
+                .for_each(|(x, y)| {
+                    let coef = if x.is_sign_positive() { alpha } else { beta };
+                    *x = *x * coef + *y;
+                });
             cum_regret.chunks_exact_mut(num_hands).for_each(|row| {
-                sub_slice(row, result);
+                sub_slice(row, cfv_hands);
             });
         }
     }
-    // if the current player is not `player`
+    // IF THE CURRENT PLAYER IS NOT `player`
+    //
+    // 1. Compute strategy for villain with regret matching. We store the
+    //    strategy in `cfreach_actions` (rather than, say, `strategy`) because
+    //    this will be updated with to store the `cfreach` for each individual
+    //    action (step 3)
+    // 2. Apply any locking to villain's strategy
+    // 3. Update strategy in `cfreach_actions` with reach probabilities in
+    //    `cfreach`; `cfreach_actions` now stores rows of per-hand reach
+    //    probabilities, where each row corresponds to an action.
+    // 4. recursively solve for `player` and store in `cfv_actions`
     else {
         // compute the strategy by regret-matching algorithm
-        let mut cfreach_actions = if game.is_compression_enabled() {
+        let mut cfreach_actions_hands = if game.is_compression_enabled() {
             regret_matching_compressed(node.regrets_compressed(), num_actions)
         } else {
             regret_matching(node.regrets(), num_actions)
@@ -397,28 +483,34 @@ fn solve_recursive<T: Game>(
 
         // node-locking
         let locking = game.locking_strategy(node);
-        apply_locking_strategy(&mut cfreach_actions, locking);
+        apply_locking_strategy(&mut cfreach_actions_hands, locking);
 
         // update the reach probabilities
         let row_size = cfreach.len();
-        cfreach_actions.chunks_exact_mut(row_size).for_each(|row| {
-            mul_slice(row, cfreach);
-        });
+        cfreach_actions_hands
+            .chunks_exact_mut(row_size)
+            .for_each(|row| {
+                mul_slice(row, cfreach);
+            });
 
         // compute the counterfactual values of each action
         for_each_child(node, |action| {
             solve_recursive(
-                row_mut(cfv_actions.lock().spare_capacity_mut(), action, num_hands),
+                row_mut(
+                    cfv_actions_hands.lock().spare_capacity_mut(),
+                    action,
+                    num_hands,
+                ),
                 game,
                 &mut node.play(action),
                 player,
-                row(&cfreach_actions, action, row_size),
+                row(&cfreach_actions_hands, action, row_size),
                 params,
             );
         });
 
         // sum up the counterfactual values
-        let mut cfv_actions = cfv_actions.lock();
+        let mut cfv_actions = cfv_actions_hands.lock();
         unsafe { cfv_actions.set_len(num_actions * num_hands) };
         sum_slices_uninit(result, &cfv_actions);
     }
@@ -449,6 +541,18 @@ fn regret_matching(regret: &[f32], num_actions: usize) -> Vec<f32, StackAlloc> {
 }
 
 /// Computes the strategy by regret-matching algorithm.
+///
+/// The resulting strategy has each element (e.g., a hand like **AdQs**) take
+/// an action proportional to its regret, where negative regrets are interpreted
+/// as zero.
+///
+/// # Arguments
+///
+/// * `regret` - slice of regrets for the current decision point, one "row" of
+///   for each action. The `i`th row contains the regrets of each strategically
+///   distinct element (e.g., in holdem an element would be a hole card) for
+///   taking the `i`th action.
+/// * `num_actions` - the number of actions represented in `regret`.
 #[cfg(not(feature = "custom-alloc"))]
 #[inline]
 fn regret_matching(regret: &[f32], num_actions: usize) -> Vec<f32> {
@@ -460,10 +564,15 @@ fn regret_matching(regret: &[f32], num_actions: usize) -> Vec<f32> {
     unsafe { strategy.set_len(regret.len()) };
 
     let row_size = regret.len() / num_actions;
+
+    // We want to normalize each element's strategy, so compute the element-wise
+    // denominator by computing the strided summation of strategy
     let mut denom = Vec::with_capacity(row_size);
     sum_slices_uninit(denom.spare_capacity_mut(), &strategy);
     unsafe { denom.set_len(row_size) };
 
+    // We set the default to be equally distributed across all options. This is
+    // used when a strategy for a particular hand is uniformly zero.
     let default = 1.0 / num_actions as f32;
     strategy.chunks_exact_mut(row_size).for_each(|row| {
         div_slice(row, &denom, default);

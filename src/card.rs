@@ -11,6 +11,8 @@ use bincode::{Decode, Encode};
 /// - `card_id = 4 * rank + suit` (where `0 <= card_id < 52`)
 ///   - `rank`: 2 => `0`, 3 => `1`, 4 => `2`, ..., A => `12`
 ///   - `suit`: club => `0`, diamond => `1`, heart => `2`, spade => `3`
+///
+/// An undealt card is represented by Card::MAX (see `NOT_DEALT`).
 pub type Card = u8;
 
 /// Constant representing that the card is not yet dealt.
