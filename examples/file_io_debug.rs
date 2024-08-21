@@ -116,7 +116,7 @@ fn print_strats_at_current_node(
             .zip(weights2.iter().zip(strat2))
         {
             let hole_cards = hole_to_string(*cards).unwrap();
-            print!("\x1B[34;1m{hole_cards}\x1B[0m@({:.2} v {:.2})  ", w1, w2);
+            print!("  \x1B[34;1m{hole_cards}\x1B[0m@({:.2} v {:.2})  ", w1, w2);
             let mut action_frequencies = vec![];
             for (a, (freq1, freq2)) in actions.iter().zip(s1.iter().zip(s2)) {
                 action_frequencies.push(format!(
@@ -127,6 +127,8 @@ fn print_strats_at_current_node(
             println!("{}", action_frequencies.join(" "));
         }
     }
+
+    println!();
 }
 
 fn main() {
@@ -158,10 +160,10 @@ fn main() {
 
     // save (turn)
     game1.set_target_storage_mode(BoardState::Turn).unwrap();
-    save_data_to_file(&game1, "", "tmpfile.flop", None).unwrap();
+    save_data_to_file(&game1, "", "tmpfile.pfs", None).unwrap();
 
     // load (turn)
-    let mut game2: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
+    let mut game2: PostFlopGame = load_data_from_file("tmpfile.pfs", None).unwrap().0;
     // compare_strategies(&mut game, &mut game2, BoardState::Turn);
     assert!(game2.rebuild_and_resolve_forgotten_streets().is_ok());
 
@@ -174,31 +176,31 @@ fn main() {
     actions_so_far.push(game1.available_actions()[0]);
     game1.play(0);
     game2.play(0);
-    print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
+    // print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
 
     // IP: Check
     actions_so_far.push(game1.available_actions()[0]);
     game1.play(0);
     game2.play(0);
-    print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
+    // print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
 
     // Chance: 2c
     actions_so_far.push(game1.available_actions()[0]);
     game1.play(0);
     game2.play(0);
-    print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
+    // print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
 
     // OOP: CHECK
     actions_so_far.push(game1.available_actions()[0]);
     game1.play(0);
     game2.play(0);
-    print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
+    // print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
 
     // IP: CHECK
     actions_so_far.push(game1.available_actions()[0]);
     game1.play(0);
     game2.play(0);
-    print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
+    // print_strats_at_current_node(&mut game1, &mut game2, &actions_so_far);
 
     // CHANCE: 0
     actions_so_far.push(game1.available_actions()[1]);

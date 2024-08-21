@@ -1005,7 +1005,7 @@ impl PostFlopGame {
 
     /// Returns the reference to the current node.
     #[inline]
-    fn node(&self) -> MutexGuardLike<PostFlopNode> {
+    pub fn node(&self) -> MutexGuardLike<PostFlopNode> {
         self.node_arena[self.node_history.last().cloned().unwrap_or(0)].lock()
     }
 

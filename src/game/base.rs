@@ -1,6 +1,7 @@
 use super::*;
 use crate::bunching::*;
 use crate::interface::*;
+use crate::solve_with_node_as_root;
 use crate::utility::*;
 use std::mem::{self, MaybeUninit};
 
@@ -880,6 +881,8 @@ impl PostFlopGame {
     /// To regain this information we need to resolve each of these subtrees
     /// individually. This function collects the index of each such root.
     pub fn collect_unsolved_roots_after_reload(&mut self) -> Result<Vec<usize>, String> {
+        println!("storage_mode: {:?}", self.storage_mode);
+        println!("target_storage_mode: {:?}", self.target_storage_mode);
         match self.storage_mode {
             BoardState::Flop => {
                 let turn_root_nodes = self
@@ -914,16 +917,32 @@ impl PostFlopGame {
 
     pub fn resolve_reloaded_nodes(
         &mut self,
-        _max_num_iterations: u32,
-        _target_exploitability: f32,
-        _print_progress: bool,
+        max_num_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
     ) -> Result<(), String> {
         let nodes_to_solve = self.collect_unsolved_roots_after_reload()?;
         self.state = State::MemoryAllocated;
+        println!("Found {} nodes to solve", nodes_to_solve.len());
         for node_idx in nodes_to_solve {
-            let _node = self.node_arena.get(node_idx).ok_or("Invalid node index")?;
-            // TODO: Get and Apply History
-            // TODO: Solve with node as root
+            let node = self.node_arena.get(node_idx).ok_or("Invalid node index")?;
+            let history = match node.lock().compute_history_recursive(self) {
+                Some(history) => history,
+                None => Err("Couldn't parse history from node")?,
+            };
+
+            self.apply_history(&history);
+            // NOTE:
+            // I _think_ this works. We don't actually modify the node, only
+            // data that is point to by the node.
+            let n = MutexLike::new(self.node().clone());
+            solve_with_node_as_root(
+                self,
+                n.lock(),
+                max_num_iterations,
+                target_exploitability,
+                print_progress,
+            );
         }
         finalize(self);
 

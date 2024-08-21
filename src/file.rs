@@ -166,7 +166,7 @@ pub fn load_data_from_std_read<T: FileData, R: Read>(
 ) -> Result<(T, String), String> {
     let magic: u32 = decode_from_std_read(reader, "Failed to read magic number")?;
     if magic != MAGIC {
-        return Err("Magic number is invalid".to_string());
+        return Err("Unrecognized file format".to_string());
     }
 
     let version: u8 = decode_from_std_read(reader, "Failed to read version number")?;
