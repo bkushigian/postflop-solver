@@ -1,5 +1,6 @@
 use postflop_solver::*;
 
+#[allow(dead_code)]
 fn recursive_compare_strategies_helper(
     saved: &mut PostFlopGame,
     loaded: &mut PostFlopGame,
@@ -40,6 +41,7 @@ fn recursive_compare_strategies_helper(
     }
 }
 
+#[allow(dead_code)]
 fn compare_strategies(
     saved: &mut PostFlopGame,
     loaded: &mut PostFlopGame,
@@ -49,7 +51,7 @@ fn compare_strategies(
     loaded.back_to_root();
     saved.cache_normalized_weights();
     loaded.cache_normalized_weights();
-    for (i, ((e1, e2), cards)) in saved
+    for (_i, ((e1, e2), cards)) in saved
         .expected_values(0)
         .iter()
         .zip(loaded.expected_values(0))
@@ -58,7 +60,7 @@ fn compare_strategies(
     {
         println!("ev {}: {}:{}", hole_to_string(*cards).unwrap(), e1, e2);
     }
-    for (i, ((e1, e2), cards)) in saved
+    for (_i, ((e1, e2), cards)) in saved
         .expected_values(1)
         .iter()
         .zip(loaded.expected_values(1))
