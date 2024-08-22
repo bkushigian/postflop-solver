@@ -1460,4 +1460,9 @@ impl PostFlopGame {
     pub fn get_state(&self) -> &State {
         return &self.state;
     }
+
+    #[inline]
+    pub fn is_partially_solved(&self) -> bool {
+        self.state >= State::SolvedFlop
+    }
 }

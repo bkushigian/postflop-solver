@@ -659,7 +659,7 @@ impl PostFlopGame {
     /// [`cache_normalized_weights`]: #method.cache_normalized_weights
     /// [`expected_values_detail`]: #method.expected_values_detail
     pub fn expected_values(&self, player: usize) -> Vec<f32> {
-        if self.state != State::Solved {
+        if !self.is_partially_solved() {
             panic!("Game is not solved");
         }
 
@@ -711,7 +711,7 @@ impl PostFlopGame {
     /// [`expected_values`]: #method.expected_value
     /// [`cache_normalized_weights`]: #method.cache_normalized_weights
     pub fn expected_values_detail(&self, player: usize) -> Vec<f32> {
-        if self.state != State::Solved {
+        if !self.is_partially_solved() {
             panic!("Game is not solved");
         }
 

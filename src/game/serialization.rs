@@ -64,7 +64,7 @@ impl PostFlopGame {
     /// If this is a River save (`target_storage_mode == BoardState::River`)
     /// then do not store cfvalues.
     ///
-    /// If this is a Flop save,
+    /// If this is a Flop save, only store flop nodes
     fn num_target_storage(&self) -> [usize; 4] {
         if self.state <= State::TreeBuilt {
             return [0; 4];
@@ -126,8 +126,21 @@ impl Encode for PostFlopGame {
         // version
         VERSION_STR.to_string().encode(encoder)?;
 
+        // Update state based on target storage whenever the state is solved
+        // TODO(Jacob): May be better to add is_solved() function onto state
+        // That would prevent bugs caused by new states being added
+        let saved_state = if self.state >= State::SolvedFlop {
+            match self.target_storage_mode {
+                BoardState::Flop => State::SolvedFlop,
+                BoardState::Turn => State::SolvedTurn,
+                BoardState::River => State::Solved,
+            }
+        } else {
+            self.state
+        };
+
         // contents
-        self.state.encode(encoder)?;
+        saved_state.encode(encoder)?;
         self.card_config.encode(encoder)?;
         self.tree_config.encode(encoder)?;
         self.added_lines.encode(encoder)?;
@@ -255,6 +268,8 @@ impl Decode for PostFlopGame {
 
         // restore the counterfactual values
         if game.storage_mode == BoardState::River && game.state == State::Solved {
+            // TODO(Jacob): Want to restructure finalize so that this hacky
+            // setting of game.state isn't necessary
             game.state = State::MemoryAllocated;
             finalize(&mut game);
         }

@@ -241,7 +241,7 @@ impl FileData for PostFlopGame {
     }
 
     fn is_ready_to_save(&self) -> bool {
-        self.is_solved()
+        self.is_partially_solved()
     }
 
     fn estimated_memory_usage(&self) -> u64 {

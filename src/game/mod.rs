@@ -26,7 +26,9 @@ pub enum State {
     Uninitialized = 1,
     TreeBuilt = 2,
     MemoryAllocated = 3,
-    Solved = 4,
+    SolvedFlop = 4,
+    SolvedTurn = 5,
+    Solved = 6,
 }
 
 /// A struct representing a postflop game.
@@ -81,6 +83,7 @@ pub struct PostFlopGame {
 
     // store options
     storage_mode: BoardState,
+    // NOTE: Only used for encoding
     target_storage_mode: BoardState,
     num_nodes_per_street: [u64; 3],
     is_compression_enabled: bool,
