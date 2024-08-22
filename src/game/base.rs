@@ -881,37 +881,37 @@ impl PostFlopGame {
     /// To regain this information we need to resolve each of these subtrees
     /// individually. This function collects the index of each such root.
     pub fn collect_unsolved_roots_after_reload(&mut self) -> Result<Vec<usize>, String> {
-        println!("storage_mode: {:?}", self.storage_mode);
-        println!("target_storage_mode: {:?}", self.target_storage_mode);
-        match self.storage_mode {
-            BoardState::Flop => {
+        match self.state {
+            State::SolvedFlop => {
                 let turn_root_nodes = self
                     .node_arena
                     .iter()
                     .enumerate()
                     .filter(|(_, n)| {
                         n.lock().turn != NOT_DEALT
-                            && n.lock().river == NOT_DEALT
-                            && matches!(n.lock().prev_action, Action::Chance(..))
+                        && n.lock().river == NOT_DEALT
+                        && matches!(n.lock().prev_action, Action::Chance(..))
                     })
                     .map(|(i, _)| i)
                     .collect::<Vec<_>>();
                 Ok(turn_root_nodes)
             }
-            BoardState::Turn => {
+            State::SolvedTurn => {
                 let river_root_nodes = self
                     .node_arena
                     .iter()
                     .enumerate()
                     .filter(|(_, n)| {
                         n.lock().turn != NOT_DEALT
-                            && matches!(n.lock().prev_action, Action::Chance(..))
+                        && n.lock().river != NOT_DEALT
+                        && matches!(n.lock().prev_action, Action::Chance(..))
                     })
                     .map(|(i, _)| i)
                     .collect::<Vec<_>>();
                 Ok(river_root_nodes)
             }
-            BoardState::River => Ok(vec![]),
+            State::Solved => Ok(vec![]),
+            _ => unreachable!(),
         }
     }
 
@@ -936,6 +936,9 @@ impl PostFlopGame {
             // I _think_ this works. We don't actually modify the node, only
             // data that is point to by the node.
             let n = MutexLike::new(self.node().clone());
+
+            println!("While resolve_reload_nodes, node_idx: {:?}", node_idx);
+
             solve_with_node_as_root(
                 self,
                 n.lock(),
@@ -956,7 +959,7 @@ impl PostFlopGame {
             return Err("Game is not successfully initialized".to_string());
         }
 
-        if self.state == State::MemoryAllocated && self.storage_mode == BoardState::River {
+        if self.storage_mode == BoardState::River {
             return Ok(());
         }
 
@@ -967,7 +970,10 @@ impl PostFlopGame {
             return Err("Memory usage exceeds maximum size".to_string());
         }
 
-        self.state = State::MemoryAllocated;
+        // Only update the state when the loaded game has not been solved at all
+        if self.state < State::MemoryAllocated {
+            self.state = State::MemoryAllocated;
+        }
         // self.is_compression_enabled = self.is_compression_enabled;
 
         let old_storage1 = std::mem::replace(&mut self.storage1, vec![]);
