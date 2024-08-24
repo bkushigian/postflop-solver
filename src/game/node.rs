@@ -263,9 +263,14 @@ impl PostFlopNode {
         if self.parent_node_index == usize::MAX {
             Some(vec![])
         } else {
-            let p = game.node_arena.get(self.parent_node_index)?;
-            let mut history = p.lock().compute_history_recursive(game)?;
-            history.push(p.lock().action_index(self.prev_action)?);
+            let indx_parent = game.node_arena.get(self.parent_node_index)?;
+            let node_parent = indx_parent.lock();
+            let mut history = node_parent.compute_history_recursive(game)?;
+            let idx = match self.prev_action {
+                Action::Chance(card_idx) => card_idx as usize,
+                _ => node_parent.action_index(self.prev_action)?,
+            };
+            history.push(idx);
             Some(history)
         }
     }

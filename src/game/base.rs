@@ -816,56 +816,9 @@ impl PostFlopGame {
 
     /* REBUILDING AND RESOLVING TREE */
 
-    /// Like `init_root`, but applied to a partial save loaded from disk. This
-    /// reallocates missing `PostFlopNode`s to `node_arena` and reruns
-    /// `build_tree_recursive`. Rerunning `build_tree_recursive` will not alter
-    /// nodes loaded from disk.
-    pub fn reinit_root(&mut self) -> Result<(), String> {
-        let nodes_per_street = self.count_nodes_per_street();
-        let total_num_nodes = nodes_per_street[0] + nodes_per_street[1] + nodes_per_street[2];
-
-        if total_num_nodes > u32::MAX as u64
-            || mem::size_of::<PostFlopNode>() as u64 * total_num_nodes > isize::MAX as u64
-        {
-            return Err("Too many nodes".to_string());
-        }
-
-        self.num_nodes_per_street = nodes_per_street;
-
-        self.node_arena = (0..total_num_nodes)
-            .map(|_| MutexLike::new(PostFlopNode::default()))
-            .collect::<Vec<_>>();
-        // self.clear_storage();
-
-        let mut info = BuildTreeInfo {
-            turn_index: nodes_per_street[0] as usize,
-            river_index: (nodes_per_street[0] + nodes_per_street[1]) as usize,
-            ..Default::default()
-        };
-
-        match self.tree_config.initial_state {
-            BoardState::Flop => info.flop_index += 1,
-            BoardState::Turn => info.turn_index += 1,
-            BoardState::River => info.river_index += 1,
-        }
-
-        let mut root = self.node_arena[0].lock();
-        root.turn = self.card_config.turn;
-        root.river = self.card_config.river;
-
-        self.build_tree_recursive(0, &self.action_root.lock(), &mut info);
-
-        self.num_storage = info.num_storage;
-        self.num_storage_ip = info.num_storage_ip;
-        self.num_storage_chance = info.num_storage_chance;
-        self.misc_memory_usage = self.memory_usage_internal();
-
-        Ok(())
-    }
-
     pub fn rebuild_and_resolve_forgotten_streets(&mut self) -> Result<(), String> {
         self.check_card_config()?;
-        self.reinit_root()?;
+        self.init_root()?;
         self.allocate_memory_after_load()?;
         self.resolve_reloaded_nodes(1000, 0.01, false)
     }
@@ -889,8 +842,8 @@ impl PostFlopGame {
                     .enumerate()
                     .filter(|(_, n)| {
                         n.lock().turn != NOT_DEALT
-                        && n.lock().river == NOT_DEALT
-                        && matches!(n.lock().prev_action, Action::Chance(..))
+                            && n.lock().river == NOT_DEALT
+                            && matches!(n.lock().prev_action, Action::Chance(..))
                     })
                     .map(|(i, _)| i)
                     .collect::<Vec<_>>();
@@ -903,8 +856,8 @@ impl PostFlopGame {
                     .enumerate()
                     .filter(|(_, n)| {
                         n.lock().turn != NOT_DEALT
-                        && n.lock().river != NOT_DEALT
-                        && matches!(n.lock().prev_action, Action::Chance(..))
+                            && n.lock().river != NOT_DEALT
+                            && matches!(n.lock().prev_action, Action::Chance(..))
                     })
                     .map(|(i, _)| i)
                     .collect::<Vec<_>>();
