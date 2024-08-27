@@ -11,7 +11,6 @@
 
 use crate::bunching::*;
 use crate::game::*;
-use crate::interface::*;
 use bincode::{Decode, Encode};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
