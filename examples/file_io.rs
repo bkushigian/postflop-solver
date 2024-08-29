@@ -71,6 +71,36 @@ fn main() {
     // game tree constructed from this file cannot access information after the river deal
     save_data_to_file(&game2, "memo string", "filename.bin", None).unwrap();
 
+    println!("Reloading and Resolving...");
+    let mut game3 = PostFlopGame::hacky_reload_and_resolve(&game2, 100, 0.01, true).unwrap();
+    println!("game2[0]: {}", game2.strategy()[0]);
+    println!("game3[0]: {}", game3.strategy()[0]);
+    for (i, (a, b)) in game2.strategy().iter().zip(game3.strategy()).enumerate() {
+        if (a - b).abs() > 0.001 {
+            println!("{i}: Oh no");
+        }
+    }
+
+    // game3.back_to_root();
+    // game3.cache_normalized_weights();
+    // for (a, b) in game2.equity(0).iter().zip(game3.equity(0)) {
+    //     if (a - b).abs() > 0.001 {
+    //         println!("Oh no");
+    //     }
+    // }
+    // game2.back_to_root();
+    // game2.cache_normalized_weights();
+
+    // for (a, b) in game2
+    //     .expected_values(0)
+    //     .iter()
+    //     .zip(game3.expected_values(0))
+    // {
+    //     if (a - b).abs() > 0.001 {
+    //         println!("{} {} {}", a, b, (a - b).abs());
+    //     }
+    // }
+
     // delete the file
     std::fs::remove_file("filename.bin").unwrap();
 }

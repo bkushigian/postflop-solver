@@ -330,6 +330,40 @@ mod tests {
     }
 
     #[test]
+    fn hacky_reload_and_resolve() {
+        let card_config = CardConfig {
+            range: [Range::ones(); 2],
+            flop: flop_from_str("Td9d6h").unwrap(),
+            ..Default::default()
+        };
+
+        let tree_config = TreeConfig {
+            starting_pot: 60,
+            effective_stack: 970,
+            flop_bet_sizes: [("50%", "").try_into().unwrap(), Default::default()],
+            turn_bet_sizes: [("50%", "").try_into().unwrap(), Default::default()],
+            ..Default::default()
+        };
+
+        let action_tree = ActionTree::new(tree_config).unwrap();
+        let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+
+        game.allocate_memory(false);
+
+        crate::solve(&mut game, 10, 0.01, false);
+
+        // save (turn)
+        game.set_target_storage_mode(BoardState::Turn).unwrap();
+        save_data_to_file(&game, "", "tmpfile.flop", None).unwrap();
+
+        // load (turn)
+        let mut turn_game: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
+
+        let mut reloaded =
+            PostFlopGame::hacky_reload_and_resolve(&turn_game, 10, 0.01, false).unwrap();
+    }
+
+    #[test]
     #[cfg(feature = "zstd")]
     fn save_and_load_file_compressed() {
         let card_config = CardConfig {

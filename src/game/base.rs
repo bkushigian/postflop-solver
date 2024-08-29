@@ -810,6 +810,60 @@ impl PostFlopGame {
         info.num_storage_ip += node.num_elements_ip as u64;
     }
 
+    fn reload_and_resolve(game: &mut PostFlopGame) {
+        todo!("Not Implemented!")
+    }
+
+    pub fn hacky_reload_and_resolve(
+        game: &PostFlopGame,
+        max_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
+    ) -> Result<PostFlopGame, String> {
+        println!("Start hacky_reload_and_resolve");
+        let card_config = game.card_config.clone();
+        let action_tree = ActionTree::new(game.tree_config.clone())?;
+        print!("Building new game...");
+        let mut new_game = PostFlopGame::with_config(card_config, action_tree)?;
+        println!("Done!");
+
+        print!("Allocating memory...");
+        new_game.allocate_memory(game.is_compression_enabled());
+        println!("Done!");
+
+        // Copy data into new game
+        print!("Copying memory...");
+        for (dst, src) in new_game.storage1.iter_mut().zip(&game.storage1) {
+            *dst = *src;
+        }
+        for (dst, src) in new_game.storage2.iter_mut().zip(&game.storage2) {
+            *dst = *src;
+        }
+        for (dst, src) in new_game.storage_chance.iter_mut().zip(&game.storage_chance) {
+            *dst = *src;
+        }
+        for (dst, src) in new_game.storage_ip.iter_mut().zip(&game.storage_ip) {
+            *dst = *src;
+        }
+        // Nodelock and resolve
+        // for node_index in 0..game.node_arena.len() {
+        //     let _ = new_game.lock_node_at_index(node_index);
+        // }
+
+        let s1 = game.strategy();
+        let s2 = new_game.strategy();
+        println!("game2[0]: {}", s1[0]);
+        println!("game3[0]: {}", s2[0]);
+        // crate::solve(
+        //     &mut new_game,
+        //     max_iterations,
+        //     target_exploitability,
+        //     print_progress,
+        // );
+
+        Ok(new_game)
+    }
+
     /// Sets the bunching effect.
     fn set_bunching_effect_internal(&mut self, bunching_data: &BunchingData) -> Result<(), String> {
         self.bunching_num_dead_cards = bunching_data.fold_ranges().len() * 2;
