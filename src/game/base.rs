@@ -846,20 +846,24 @@ impl PostFlopGame {
             *dst = *src;
         }
         // Nodelock and resolve
-        // for node_index in 0..game.node_arena.len() {
-        //     let _ = new_game.lock_node_at_index(node_index);
-        // }
+        for node_index in 0..game.node_arena.len() {
+            let _ = new_game.lock_node_at_index(node_index);
+        }
 
         let s1 = game.strategy();
         let s2 = new_game.strategy();
-        println!("game2[0]: {}", s1[0]);
-        println!("game3[0]: {}", s2[0]);
-        // crate::solve(
-        //     &mut new_game,
-        //     max_iterations,
-        //     target_exploitability,
-        //     print_progress,
-        // );
+        println!("game2[{}]: {}", game.node_index(&game.node()), s1[0]);
+        println!(
+            "game3[{}]: {}",
+            new_game.node_index(&new_game.node()),
+            s2[0]
+        );
+        crate::solve(
+            &mut new_game,
+            max_iterations,
+            target_exploitability,
+            print_progress,
+        );
 
         Ok(new_game)
     }

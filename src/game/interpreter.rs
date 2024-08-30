@@ -660,6 +660,7 @@ impl PostFlopGame {
     /// [`expected_values_detail`]: #method.expected_values_detail
     pub fn expected_values(&self, player: usize) -> Vec<f32> {
         if !self.is_partially_solved() {
+            println!("{:?}", self.state);
             panic!("Game is not solved");
         }
 
@@ -846,6 +847,32 @@ impl PostFlopGame {
         ret
     }
 
+    // TODO use in .strategy()
+    pub fn strategy_at_node(&self, node: &PostFlopNode) -> Vec<f32> {
+        if self.state < State::MemoryAllocated {
+            panic!("Memory is not allocated");
+        }
+
+        let player = self.current_player();
+        let num_actions = node.num_actions();
+        let num_hands = self.num_private_hands(player);
+
+        let mut ret = if self.is_compression_enabled {
+            normalized_strategy_compressed(node.strategy_compressed(), num_actions)
+        } else {
+            normalized_strategy(node.strategy(), num_actions)
+        };
+
+        let locking = self.locking_strategy(&node);
+        apply_locking_strategy(&mut ret, locking);
+
+        ret.chunks_exact_mut(num_hands).for_each(|chunk| {
+            self.apply_swap(chunk, player, false);
+        });
+
+        ret
+    }
+
     /// Returns the total bet amount of each player (OOP, IP).
     #[inline]
     pub fn total_bet_amount(&self) -> [i32; 2] {
@@ -880,9 +907,10 @@ impl PostFlopGame {
             return Err("Cannot lock chance node".to_string());
         }
 
+        let strategy = self.strategy_at_node(&node);
+
         node.is_locked = true;
-        self.locking_strategy
-            .insert(index, node.strategy().to_vec());
+        self.locking_strategy.insert(index, strategy);
         Ok(())
     }
 
@@ -1028,7 +1056,7 @@ impl PostFlopGame {
 
     /// Returns the reference to the current node.
     #[inline]
-    fn node(&self) -> MutexGuardLike<PostFlopNode> {
+    pub fn node(&self) -> MutexGuardLike<PostFlopNode> {
         self.node_arena[self.node_history.last().cloned().unwrap_or(0)].lock()
     }
 
