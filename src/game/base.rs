@@ -810,7 +810,7 @@ impl PostFlopGame {
         info.num_storage_ip += node.num_elements_ip as u64;
     }
 
-    fn reload_and_resolve(game: &mut PostFlopGame) {
+    pub fn reload_and_resolve(_game: &mut PostFlopGame) {
         todo!("Not Implemented!")
     }
 
