@@ -845,19 +845,15 @@ impl PostFlopGame {
         for (dst, src) in new_game.storage_ip.iter_mut().zip(&game.storage_ip) {
             *dst = *src;
         }
+        println!("Done!");
+
         // Nodelock and resolve
         for node_index in 0..game.node_arena.len() {
-            let _ = new_game.lock_node_at_index(node_index);
+            if new_game.node_arena[node_index].lock().river == NOT_DEALT {
+                let _ = new_game.lock_node_at_index(node_index);
+            }
         }
 
-        let s1 = game.strategy();
-        let s2 = new_game.strategy();
-        println!("game2[{}]: {}", game.node_index(&game.node()), s1[0]);
-        println!(
-            "game3[{}]: {}",
-            new_game.node_index(&new_game.node()),
-            s2[0]
-        );
         crate::solve(
             &mut new_game,
             max_iterations,
