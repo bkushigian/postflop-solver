@@ -58,6 +58,19 @@ pub fn solve<T: Game>(
     }
 
     let mut root = game.root();
+
+    // Run solve_recursive once to initialize uninitialized strat memory
+    for player in 0..2 {
+        let mut result = Vec::with_capacity(game.num_private_hands(player));
+        solve_recursive(
+            result.spare_capacity_mut(),
+            game,
+            &mut root,
+            player,
+            game.initial_weights(player ^ 1),
+            &DiscountParams::new(0),
+        );
+    }
     let mut exploitability = compute_exploitability(game);
 
     if print_progress {
@@ -66,7 +79,7 @@ pub fn solve<T: Game>(
         io::stdout().flush().unwrap();
     }
 
-    for t in 0..max_num_iterations {
+    for t in 1..max_num_iterations {
         if exploitability <= target_exploitability {
             break;
         }
@@ -86,7 +99,7 @@ pub fn solve<T: Game>(
             );
         }
 
-        if (t + 1) % 10 == 0 || t + 1 == max_num_iterations {
+        if t % 10 == 0 || t + 1 == max_num_iterations {
             exploitability = compute_exploitability(game);
         }
 

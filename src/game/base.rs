@@ -823,6 +823,8 @@ impl PostFlopGame {
         println!("Start hacky_reload_and_resolve");
         let card_config = game.card_config.clone();
         let action_tree = ActionTree::new(game.tree_config.clone())?;
+        let target_storage_mode = game.target_storage_mode();
+
         print!("Building new game...");
         let mut new_game = PostFlopGame::with_config(card_config, action_tree)?;
         println!("Done!");
@@ -847,13 +849,21 @@ impl PostFlopGame {
         }
         println!("Done!");
 
-        // Nodelock and resolve
-        for node_index in 0..game.node_arena.len() {
-            if new_game.node_arena[node_index].lock().river == NOT_DEALT {
-                let _ = new_game.lock_node_at_index(node_index);
-            }
+        if target_storage_mode == BoardState::River {
+            return Ok(new_game);
         }
 
+        // Nodelock and resolve
+        let num_nodes_to_lock = match target_storage_mode {
+            BoardState::River => 0,
+            BoardState::Turn => game.num_nodes_per_street[0] + game.num_nodes_per_street[1],
+            BoardState::Flop => game.num_nodes_per_street[0],
+        };
+
+        for node_index in 0..num_nodes_to_lock as usize {
+            // We can't ? because this tries to lock chance nodes
+            let _ = new_game.lock_node_at_index(node_index);
+        }
         crate::solve(
             &mut new_game,
             max_iterations,
