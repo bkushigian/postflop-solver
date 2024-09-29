@@ -72,9 +72,8 @@ fn main() {
     save_data_to_file(&game2, "memo string", "filename.bin", None).unwrap();
 
     println!("Reloading and Resolving...");
-    let mut game3 = PostFlopGame::hacky_reload_and_resolve(&game2, 100, 0.01, true).unwrap();
-    println!("game2[0]: {}", game2.strategy()[0]);
-    println!("game3[0]: {}", game3.strategy()[0]);
+    let game3 =
+        PostFlopGame::hacky_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
     for (i, (a, b)) in game2.strategy().iter().zip(game3.strategy()).enumerate() {
         if (a - b).abs() > 0.001 {
             println!("{i}: Oh no");
