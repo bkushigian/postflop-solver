@@ -810,11 +810,23 @@ impl PostFlopGame {
         info.num_storage_ip += node.num_elements_ip as u64;
     }
 
-    pub fn reload_and_resolve(_game: &mut PostFlopGame) {
-        todo!("Not Implemented!")
+    pub fn reload_and_resolve(
+        game: &mut PostFlopGame,
+        max_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
+    ) -> Result<(), String> {
+        *game = PostFlopGame::copy_reload_and_resolve(
+            game,
+            max_iterations,
+            target_exploitability,
+            print_progress,
+        )?;
+        Ok(())
     }
 
-    pub fn hacky_reload_and_resolve(
+    /// copy_reload_and_resolve
+    pub fn copy_reload_and_resolve(
         game: &PostFlopGame,
         max_iterations: u32,
         target_exploitability: f32,

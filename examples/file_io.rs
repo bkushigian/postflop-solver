@@ -84,7 +84,7 @@ fn main() {
     println!("Reloading from Turn Save and Resolving...");
     let turn_solve_start = time::Instant::now();
     let game3 =
-        PostFlopGame::hacky_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
+        PostFlopGame::copy_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
     for (i, (a, b)) in game2.strategy().iter().zip(game3.strategy()).enumerate() {
         if (a - b).abs() > 0.001 {
             println!("{i}: Oh no");
@@ -118,7 +118,7 @@ fn main() {
     println!("Reloading from River Save and Resolving...");
     let river_solve_start = time::Instant::now();
     let game3 =
-        PostFlopGame::hacky_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
+        PostFlopGame::copy_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
 
     println!(
         "River solve: {} seconds",
@@ -130,6 +130,8 @@ fn main() {
             println!("{i}: Oh no");
         }
     }
+
+    let _ = PostFlopGame::reload_and_resolve(&mut game2, 1000, target_exploitability, true);
 
     // delete the file
     std::fs::remove_file(file_save_name).unwrap();

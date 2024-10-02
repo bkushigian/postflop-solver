@@ -360,7 +360,7 @@ mod tests {
         let mut turn_game: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
 
         let mut reloaded =
-            PostFlopGame::hacky_reload_and_resolve(&turn_game, 10, 0.01, false).unwrap();
+            PostFlopGame::copy_reload_and_resolve(&turn_game, 10, 0.01, false).unwrap();
     }
 
     #[test]
