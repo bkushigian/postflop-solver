@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn hacky_reload_and_resolve() {
+    fn reload_and_resolve() {
         let card_config = CardConfig {
             range: [Range::ones(); 2],
             flop: flop_from_str("Td9d6h").unwrap(),
@@ -351,16 +351,30 @@ mod tests {
         game.allocate_memory(false);
 
         crate::solve(&mut game, 10, 0.01, false);
+        let file_save_name = "tmpfile.pfs";
 
         // save (turn)
         game.set_target_storage_mode(BoardState::Turn).unwrap();
-        save_data_to_file(&game, "", "tmpfile.flop", None).unwrap();
+        save_data_to_file(&game, "", file_save_name, None).unwrap();
 
         // load (turn)
-        let mut turn_game: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
+        let mut turn_game: PostFlopGame = load_data_from_file(file_save_name, None).unwrap().0;
+        turn_game.cache_normalized_weights();
+        let ev_oop = turn_game.expected_values(0);
+        let ev_ip = turn_game.expected_values(1);
 
-        let mut reloaded =
-            PostFlopGame::copy_reload_and_resolve(&turn_game, 10, 0.01, false).unwrap();
+        assert!(PostFlopGame::reload_and_resolve(&mut turn_game, 10, 0.01, false).is_ok());
+        turn_game.cache_normalized_weights();
+        let resolved_ev_oop = turn_game.expected_values(0);
+        let resolved_ev_ip = turn_game.expected_values(1);
+
+        for (ev1, ev2) in ev_oop.iter().zip(resolved_ev_oop) {
+            assert!((ev1 - ev2).abs() < 0.00001);
+        }
+        for (ev1, ev2) in ev_ip.iter().zip(resolved_ev_ip) {
+            assert!((ev1 - ev2).abs() < 0.00001);
+        }
+        std::fs::remove_file(file_save_name).unwrap();
     }
 
     #[test]
