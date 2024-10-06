@@ -175,8 +175,8 @@ fn next_combination(mask: u64) -> u64 {
 #[inline]
 fn compress_mask(mut mask: u64, flop: [Card; 3]) -> u64 {
     assert!(flop[0] < flop[1] && flop[1] < flop[2]);
-    for i in 0..3 {
-        let m = (1 << (flop[i] as usize - i)) - 1;
+    for (i, &c) in flop.iter().enumerate() {
+        let m = (1 << (c as usize - i)) - 1;
         mask = (mask & m) | ((mask >> 1) & !m);
     }
     mask
@@ -716,11 +716,15 @@ impl BunchingData {
                 let chunk_end_index = usize::min(chunk_start_index + 100, end_index);
                 let mut src_mask = index_to_mask(chunk_start_index, K);
 
-                for src_index in chunk_start_index..chunk_end_index {
+                for entry in src_table
+                    .iter()
+                    .take(chunk_end_index)
+                    .skip(chunk_start_index)
+                {
                     let mut src_mask_copy = src_mask;
                     src_mask = next_combination(src_mask);
 
-                    let freq = src_table[src_index].load();
+                    let freq = entry.load();
                     if freq == 0.0 {
                         continue;
                     }
