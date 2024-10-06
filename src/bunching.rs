@@ -145,12 +145,12 @@ pub struct BunchingData {
 #[inline]
 fn mask_to_index(mut mask: u64, k: usize) -> usize {
     let mut index = 0;
-    for i in 0..k {
+    COMB_TABLE.iter().take(k).for_each(|xs| {
         assert!(mask != 0);
         let tz = mask.trailing_zeros();
-        index += COMB_TABLE[i][tz as usize];
+        index += xs[tz as usize];
         mask &= mask - 1;
-    }
+    });
     index
 }
 
