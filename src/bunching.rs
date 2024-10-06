@@ -730,26 +730,26 @@ impl BunchingData {
                     }
 
                     let mut src_mask_bit = [0; K];
-                    for i in 0..K {
+                    src_mask_bit.iter_mut().for_each(|bit| {
                         let lsb = src_mask_copy & src_mask_copy.wrapping_neg();
                         src_mask_copy ^= lsb;
-                        src_mask_bit[i] = lsb;
-                    }
+                        *bit = lsb;
+                    });
 
-                    for i in 0..(1 << K) - 1 {
-                        if num_ones[i] > 6 {
+                    for (i, &x) in num_ones.iter().enumerate() {
+                        if x > 6 {
                             continue;
                         }
 
                         let mut dst_mask = 0;
-                        for j in 0..K {
+                        for (j, &y) in src_mask_bit.iter().enumerate() {
                             if i & (1 << j) != 0 {
-                                dst_mask |= src_mask_bit[j];
+                                dst_mask |= y;
                             }
                         }
 
-                        let dst_index = mask_to_index(dst_mask, num_ones[i] as usize);
-                        self.sum[num_ones[i] as usize][dst_index].add(freq);
+                        let dst_index = mask_to_index(dst_mask, x as usize);
+                        self.sum[x as usize][dst_index].add(freq);
                     }
                 }
             });
@@ -777,37 +777,41 @@ impl BunchingData {
                 let dst_end_index = usize::min(dst_start_index + 100, end_index);
                 let mut mask = index_to_mask(dst_start_index, N);
 
-                for dst_index in dst_start_index..dst_end_index {
-                    let mut mask_copy = mask;
-                    mask = next_combination(mask);
+                dst_table
+                    .iter()
+                    .take(dst_end_index)
+                    .skip(dst_start_index)
+                    .for_each(|dst| {
+                        let mut mask_copy = mask;
+                        mask = next_combination(mask);
 
-                    let mut mask_bit = [0; N];
-                    for i in 0..N {
-                        let lsb = mask_copy & mask_copy.wrapping_neg();
-                        mask_copy ^= lsb;
-                        mask_bit[i] = lsb;
-                    }
+                        let mut mask_bit = [0; N];
+                        mask_bit.iter_mut().for_each(|bit| {
+                            let lsb = mask_copy & mask_copy.wrapping_neg();
+                            mask_copy ^= lsb;
+                            *bit = lsb;
+                        });
 
-                    let mut result = 0.0;
+                        let mut result = 0.0;
 
-                    for &(i, k) in &indices {
-                        let mut src_mask = 0;
-                        for j in 0..N {
-                            if i & (1 << j) != 0 {
-                                src_mask |= mask_bit[j];
+                        for &(i, k) in &indices {
+                            let mut src_mask = 0;
+                            mask_bit.iter().take(N).enumerate().for_each(|(j, mb)| {
+                                if i & (1 << j) != 0 {
+                                    src_mask |= mb;
+                                }
+                            });
+
+                            let src_index = mask_to_index(src_mask, k as usize);
+                            if k & 1 == 0 {
+                                result += self.sum[k as usize][src_index].load();
+                            } else {
+                                result -= self.sum[k as usize][src_index].load();
                             }
                         }
 
-                        let src_index = mask_to_index(src_mask, k as usize);
-                        if k & 1 == 0 {
-                            result += self.sum[k as usize][src_index].load();
-                        } else {
-                            result -= self.sum[k as usize][src_index].load();
-                        }
-                    }
-
-                    dst_table[dst_index].store(f32::max(result as f32, 0.0));
-                }
+                        dst.store(f32::max(result as f32, 0.0));
+                    });
             });
     }
 }
