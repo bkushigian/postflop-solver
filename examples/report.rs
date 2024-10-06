@@ -1,3 +1,9 @@
+use std::{
+    fmt::Display,
+    fs::{create_dir, File},
+    io::Write,
+};
+
 use postflop_solver::*;
 
 fn flop_to_string(flop: &[u8; 3]) -> String {
@@ -29,7 +35,29 @@ fn get_strategy_percentages(game: &PostFlopGame) -> Vec<f32> {
         .collect()
 }
 
+fn is_terminating_action(action: Action, player: usize) -> bool {
+    match action {
+        Action::AllIn(_) => false,
+        Action::Bet(_) => false,
+        Action::Raise(_) => false,
+        // Check is terminating iff current player is IP
+        Action::Check => player == 1,
+        _ => true,
+    }
+}
+
+fn folder_name_from_action(action: Action) -> String {
+    match action {
+        Action::AllIn(x) => format!("allin{}", x),
+        Action::Bet(x) => format!("bet{}", x),
+        Action::Raise(x) => format!("raise{}", x),
+        Action::Check => "check".to_string(),
+        _ => unimplemented!("Cannot currently make folder for terminating action"),
+    }
+}
+
 struct AggRow {
+    flop: [u8; 3],
     ip_equity: f32,
     ip_ev: f32,
     oop_equity: f32,
@@ -37,10 +65,12 @@ struct AggRow {
     actions: Vec<f32>,
 }
 
-impl AggRow {
-    fn println(&self) {
-        println!(
-            "{:.2},{:.2},{:.2},{:.2},{}",
+impl Display for AggRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{},{:.2},{:.2},{:.2},{:.2},{}",
+            flop_to_string(&self.flop),
             self.ip_equity,
             self.ip_ev,
             self.oop_equity,
@@ -51,6 +81,164 @@ impl AggRow {
                 .collect::<Vec<String>>()
                 .join(",")
         )
+    }
+}
+
+impl AggRow {
+    fn write(&self, file: &mut File) -> std::io::Result<()> {
+        writeln!(file, "{}", self)
+    }
+}
+
+struct AggActionTree {
+    prev_actions: Vec<Action>,
+    avail_actions: Vec<Action>,
+    // NOTE: |child_trees| <= |avail_actions|
+    // Because no child is created for terminating nodes
+    // Use non_terminating_avail_actions to get corresponding list
+    // of actions taken to reach child trees
+    child_trees: Vec<AggActionTree>,
+    data: Vec<AggRow>,
+}
+
+impl AggActionTree {
+    fn init(prev_actions: Vec<Action>, avail_actions: Vec<Action>) -> AggActionTree {
+        AggActionTree {
+            prev_actions,
+            avail_actions,
+            child_trees: Vec::new(),
+            data: Vec::new(),
+        }
+    }
+
+    // current_dir = dir that report should be written to
+    fn write(&self, current_dir: &str, report_file_name: &str) -> std::io::Result<()> {
+        // Write report
+        let mut f = File::create_new(format!("{}/{}", current_dir, report_file_name))?;
+        writeln!(
+            f,
+            "Flop,IP Eq,IP EV,OOP Eq,OOP EV,{}",
+            self.avail_actions
+                .iter()
+                .map(|a| format!("{:?}", a))
+                .collect::<Vec<String>>()
+                .join(",")
+        )?;
+        for row in &self.data {
+            writeln!(f, "{}", row)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_self_and_children(
+        &self,
+        current_dir: &str,
+        report_file_name: &str,
+    ) -> std::io::Result<()> {
+        self.write(current_dir, report_file_name)?;
+
+        for (child, action) in self
+            .child_trees
+            .iter()
+            .zip(self.non_terminating_avail_actions().iter())
+        {
+            create_dir(format!(
+                "{}/{}",
+                current_dir,
+                folder_name_from_action(*action)
+            ))?;
+            child.write_self_and_children(
+                format!("{}/{}", current_dir, folder_name_from_action(*action)).as_str(),
+                report_file_name,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn update(&mut self, game: &mut PostFlopGame, &flop: &[u8; 3]) {
+        game.cache_normalized_weights();
+
+        self.avail_actions = game.available_actions();
+
+        // Compute statistics
+        let (oop_equity, oop_ev) = get_equity_and_ev(&game, 0);
+        let (ip_equity, ip_ev) = get_equity_and_ev(&game, 1);
+        self.data.push(AggRow {
+            flop,
+            ip_equity,
+            ip_ev,
+            oop_equity,
+            oop_ev,
+            actions: get_strategy_percentages(&game),
+        });
+
+        let history = game.history().to_owned();
+
+        let mut child_tree_index = 0;
+        for (i, action) in self.avail_actions.iter().enumerate() {
+            // Skip terminating actions (e.g. Call)
+            if is_terminating_action(*action, self.current_player()) {
+                continue;
+            }
+
+            let mut new_prev_actions = self.prev_actions.clone();
+            new_prev_actions.push(*action);
+
+            game.play(i);
+
+            // Initialize child tree if it doesn't exist
+            if child_tree_index >= self.child_trees.len() {
+                self.child_trees.push(AggActionTree::init(
+                    new_prev_actions,
+                    game.available_actions(),
+                ));
+            }
+
+            let child_tree = &mut self.child_trees[child_tree_index];
+            child_tree.update(game, &flop);
+
+            game.back_to_root();
+            game.apply_history(history.as_slice());
+
+            child_tree_index += 1;
+        }
+    }
+
+    fn print(&self) {
+        println!(
+            "Flop,IP Eq,IP EV,OOP Eq,OOP EV,{}",
+            self.avail_actions
+                .iter()
+                .map(|a| format!("{:?}", a))
+                .collect::<Vec<String>>()
+                .join(",")
+        );
+        for row in &self.data {
+            println!("{}", row)
+        }
+    }
+
+    fn print_self_and_children(&self) {
+        println!("Line: {:?}", self.prev_actions);
+        self.print();
+        println!("");
+        for tree in &self.child_trees {
+            tree.print_self_and_children();
+        }
+    }
+
+    fn current_player(&self) -> usize {
+        self.prev_actions.len() % 2
+    }
+
+    fn non_terminating_avail_actions(&self) -> Vec<Action> {
+        self.avail_actions
+            .iter()
+            .filter(|&&action| !is_terminating_action(action, self.current_player()))
+            .copied()
+            .collect()
     }
 }
 
@@ -82,48 +270,36 @@ fn main() {
         merging_threshold: 0.1,
     };
 
-    let mut rows: Vec<AggRow> = Vec::new();
-    let mut actions = Vec::new();
+    let mut report_tree = AggActionTree::init(Vec::new(), Vec::new());
 
-    for &flop in &flops {
-        let card_config = CardConfig {
-            range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
-            flop,
-            turn: NOT_DEALT,
-            river: NOT_DEALT,
-        };
+    for (i, &flop) in flops.iter().enumerate() {
+        // let card_config = CardConfig {
+        //     range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
+        //     flop,
+        //     turn: NOT_DEALT,
+        //     river: NOT_DEALT,
+        // };
 
-        let action_tree = ActionTree::new(tree_config.clone()).unwrap();
-        let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
-        game.allocate_memory(false);
+        // let action_tree = ActionTree::new(tree_config.clone()).unwrap();
+        // let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+        // game.allocate_memory(false);
 
-        let max_num_iterations = 1000;
-        let target_exploitability = game.tree_config().starting_pot as f32 * 0.005;
-        solve(&mut game, max_num_iterations, target_exploitability, true);
+        // let max_num_iterations = 1000;
+        // let target_exploitability = game.tree_config().starting_pot as f32 * 0.005;
+        // solve(&mut game, max_num_iterations, target_exploitability, true);
 
         // Uncomment to reload previously-saved game
         // (Should also comment out above solving code)
-        // let (mut game, _): (PostFlopGame, _) =
-        //     load_data_from_file(format!("flops/{}.bin", flop_to_string(&flop)), None).unwrap();
+        let (mut game, _): (PostFlopGame, _) =
+            load_data_from_file(format!("flops/{}.bin", flop_to_string(&flop)), None).unwrap();
 
-        game.cache_normalized_weights();
-
-        // Store actions
-        if actions.is_empty() {
-            actions = game.available_actions();
+        if report_tree.avail_actions.is_empty() {
+            report_tree.avail_actions = game.available_actions();
         }
 
-        // Compute statistics
-        let (oop_equity, oop_ev) = get_equity_and_ev(&game, 0);
-        let (ip_equity, ip_ev) = get_equity_and_ev(&game, 1);
-        rows.push(AggRow {
-            ip_equity,
-            ip_ev,
-            oop_equity,
-            oop_ev,
-            actions: get_strategy_percentages(&game),
-        });
+        report_tree.update(&mut game, &flop);
 
+        println!("Done with {} flops", i + 1);
         // Uncomment to save game
         // save_data_to_file(
         //     &game,
@@ -134,16 +310,7 @@ fn main() {
         // .unwrap();
     }
 
-    println!(
-        "Flop,IP Eq,IP EV,OOP Eq,OOP EV,{}",
-        actions
-            .iter()
-            .map(|a| format!("{:?}", a))
-            .collect::<Vec<String>>()
-            .join(",")
-    );
-    for (row, flop) in rows.iter().zip(flops.iter()) {
-        print!("{},", flop_to_string(flop));
-        row.println();
-    }
+    report_tree
+        .write_self_and_children("reports/root", "report.csv")
+        .expect("Problem writing to files");
 }
