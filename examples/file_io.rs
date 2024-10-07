@@ -118,6 +118,7 @@ fn main() {
 
     println!("Reloading from Flop Save and Resolving...");
     let flop_solve_start = time::Instant::now();
+    println!("Using copy_reload_and_resolve: this results in a new game");
     let game3 =
         PostFlopGame::copy_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
 
@@ -132,7 +133,14 @@ fn main() {
         }
     }
 
+    println!();
+    println!("Using reload_and_resolve: this overwrites the existing game");
+    let flop_solve_start = time::Instant::now();
     let _ = PostFlopGame::reload_and_resolve(&mut game2, 1000, target_exploitability, true);
+    println!(
+        "\nFlop solve: {} seconds",
+        flop_solve_start.elapsed().as_secs()
+    );
 
     // delete the file
     std::fs::remove_file(file_save_name).unwrap();
