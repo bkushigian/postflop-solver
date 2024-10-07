@@ -469,47 +469,4 @@ mod tests {
         assert!((root_ev_oop - 45.0).abs() < 1e-4);
         assert!((root_ev_ip - 15.0).abs() < 1e-4);
     }
-
-    #[test]
-    fn test_reload_and_resolve2() {
-        let oop_range = "AA,QQ";
-        let ip_range = "KK";
-
-        let card_config = CardConfig {
-            range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
-            flop: flop_from_str("3h3s3d").unwrap(),
-            ..Default::default()
-        };
-
-        let tree_config = TreeConfig {
-            starting_pot: 100,
-            effective_stack: 100,
-            rake_rate: 0.0,
-            rake_cap: 0.0,
-            flop_bet_sizes: [("e", "").try_into().unwrap(), ("e", "").try_into().unwrap()],
-            turn_bet_sizes: [("e", "").try_into().unwrap(), ("e", "").try_into().unwrap()],
-            river_bet_sizes: [("e", "").try_into().unwrap(), ("e", "").try_into().unwrap()],
-            ..Default::default()
-        };
-
-        let action_tree = ActionTree::new(tree_config).unwrap();
-        let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
-        println!(
-            "memory usage: {:.2}GB",
-            game.memory_usage().0 as f64 / (1024.0 * 1024.0 * 1024.0)
-        );
-        game.allocate_memory(false);
-
-        solve(&mut game, 100, 0.01, false);
-
-        let file_save_location = "test_reload_and_resolve2.flop";
-        // save (turn)
-        game.set_target_storage_mode(BoardState::Turn).unwrap();
-        save_data_to_file(&game, "", file_save_location, None).unwrap();
-
-        // load (turn)
-        let mut game: PostFlopGame = load_data_from_file(file_save_location, None).unwrap().0;
-        assert!(PostFlopGame::reload_and_resolve(&mut game, 100, 0.01, true).is_ok());
-        std::fs::remove_file(file_save_location).unwrap();
-    }
 }

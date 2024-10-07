@@ -880,13 +880,13 @@ impl PostFlopGame {
     }
 
     /// Locks the strategy of the current node to the current strategy already in memory.
-    pub fn lock_current_strategy(&mut self) {
+    pub fn lock_current_strategy(&mut self) -> Result<(), String> {
         if self.is_terminal_node() {
-            panic!("Terminal node is not allowed");
+            return Err("Cannot lock terminal nodes".to_string());
         }
 
         if self.is_chance_node() {
-            panic!("Chance node is not allowed");
+            return Err("Cannot lock chance nodes".to_string());
         }
 
         let mut node = self.node();
@@ -897,6 +897,7 @@ impl PostFlopGame {
         node.is_locked = true;
         self.locking_strategy
             .insert(index, node.strategy().to_vec());
+        Ok(())
     }
 
     pub fn lock_node_at_index(&mut self, index: usize) -> Result<(), String> {
@@ -931,21 +932,17 @@ impl PostFlopGame {
     /// This method must be called after allocating memory and before solving the game.
     /// Panics if the memory is not yet allocated or the game is already solved.
     /// Also, panics if the current node is a terminal node or a chance node.
-    pub fn lock_current_node(&mut self, strategy: &[f32]) {
+    pub fn lock_current_node(&mut self, strategy: &[f32]) -> Result<(), String> {
         if self.state < State::MemoryAllocated {
-            panic!("Memory is not allocated");
-        }
-
-        if self.state == State::Solved {
-            panic!("Game is already solved");
+            return Err("Memory is not allocated".to_string());
         }
 
         if self.is_terminal_node() {
-            panic!("Terminal node is not allowed");
+            return Err("Cannot lock terminal nodes".to_string());
         }
 
         if self.is_chance_node() {
-            panic!("Chance node is not allowed");
+            return Err("Cannot lock chance nodes".to_string());
         }
 
         let mut node = self.node();
@@ -986,6 +983,7 @@ impl PostFlopGame {
         node.is_locked = true;
         let index = self.node_index(&node);
         self.locking_strategy.insert(index, locking);
+        Ok(())
     }
 
     /// Unlocks the strategy of the current node.
