@@ -192,9 +192,10 @@ fn solve_recursive<T: Game>(
     //
     // Rows are obtained using operations from `sliceop` (e.g., `sliceop::row_mut()`).
     //
-    // `cfv_actions` will be written to by recursive calls to `solve_recursive`.
+    // `cfv_actions_hands` will be written to by recursive calls to `solve_recursive`.
     #[cfg(feature = "custom-alloc")]
-    let cfv_actions = MutexLike::new(Vec::with_capacity_in(num_actions * num_hands, StackAlloc));
+    let cfv_actions_hands =
+        MutexLike::new(Vec::with_capacity_in(num_actions * num_hands, StackAlloc));
     #[cfg(not(feature = "custom-alloc"))]
     let cfv_actions_hands = MutexLike::new(Vec::with_capacity(num_actions * num_hands));
 
