@@ -1571,7 +1571,7 @@ impl PostFlopGame {
     }
 
     pub fn get_state(&self) -> &State {
-        return &self.state;
+        &self.state
     }
 
     #[inline]
