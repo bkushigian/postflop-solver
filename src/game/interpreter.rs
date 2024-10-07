@@ -891,8 +891,10 @@ impl PostFlopGame {
 
         let mut node = self.node();
 
-        node.is_locked = true;
         let index = self.node_index(&node);
+        // Note: node.is_locked is tightly coupled with locking_strategy
+        // containing the node's index
+        node.is_locked = true;
         self.locking_strategy
             .insert(index, node.strategy().to_vec());
     }
