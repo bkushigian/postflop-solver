@@ -735,6 +735,7 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
+                    child.parent_node_index = node_index;
                     child.turn = card;
                 }
             }
@@ -753,6 +754,7 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
+                    child.parent_node_index = node_index;
                     child.turn = node.turn;
                     child.river = card;
                 }
@@ -796,6 +798,7 @@ impl PostFlopGame {
         for (child, action) in node.children().iter().zip(action_node.actions.iter()) {
             let mut child = child.lock();
             child.prev_action = *action;
+            child.parent_node_index = node_index;
             child.turn = node.turn;
             child.river = node.river;
         }

@@ -124,6 +124,7 @@ pub struct PostFlopGame {
 #[repr(C)]
 pub struct PostFlopNode {
     prev_action: Action,
+    parent_node_index: usize,
     player: u8,
     turn: Card,
     river: Card,

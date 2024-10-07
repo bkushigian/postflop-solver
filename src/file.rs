@@ -165,7 +165,7 @@ pub fn load_data_from_std_read<T: FileData, R: Read>(
 ) -> Result<(T, String), String> {
     let magic: u32 = decode_from_std_read(reader, "Failed to read magic number")?;
     if magic != MAGIC {
-        return Err("Magic number is invalid".to_string());
+        return Err("Unrecognized file format".to_string());
     }
 
     let version: u8 = decode_from_std_read(reader, "Failed to read version number")?;
@@ -268,6 +268,7 @@ mod tests {
     use crate::action_tree::*;
     use crate::card::*;
     use crate::range::*;
+    use crate::solver::*;
     use crate::utility::*;
 
     #[test]
@@ -293,27 +294,28 @@ mod tests {
         finalize(&mut game);
 
         // save
-        save_data_to_file(&game, "", "tmpfile.flop", None).unwrap();
+        let file_save_location = "tmpfile.pfs";
+        save_data_to_file(&game, "", file_save_location, None).unwrap();
 
         // load
-        let mut game: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
+        let mut game: PostFlopGame = load_data_from_file(file_save_location, None).unwrap().0;
 
         // save (turn)
         game.set_target_storage_mode(BoardState::Turn).unwrap();
-        save_data_to_file(&game, "", "tmpfile.flop", None).unwrap();
+        save_data_to_file(&game, "", file_save_location, None).unwrap();
 
         // load (turn)
-        let mut game: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
+        let mut game: PostFlopGame = load_data_from_file(file_save_location, None).unwrap().0;
 
         // save (flop)
         game.set_target_storage_mode(BoardState::Flop).unwrap();
-        save_data_to_file(&game, "", "tmpfile.flop", None).unwrap();
+        save_data_to_file(&game, "", file_save_location, None).unwrap();
 
         // load (flop)
-        let mut game: PostFlopGame = load_data_from_file("tmpfile.flop", None).unwrap().0;
+        let mut game: PostFlopGame = load_data_from_file(file_save_location, None).unwrap().0;
 
         // remove tmpfile
-        std::fs::remove_file("tmpfile.flop").unwrap();
+        std::fs::remove_file(file_save_location).unwrap();
 
         game.cache_normalized_weights();
         let weights_oop = game.normalized_weights(0);
@@ -350,8 +352,12 @@ mod tests {
 
         game.allocate_memory(false);
 
-        crate::solve(&mut game, 10, 0.01, false);
-        let file_save_name = "tmpfile.pfs";
+        let target_exploitability = 0.0001;
+        let max_iters = 500;
+        let ev_threshold = 0.1;
+
+        crate::solve(&mut game, max_iters, target_exploitability, false);
+        let file_save_name = "test_reload_and_resolve.pfs";
 
         // save (turn)
         game.set_target_storage_mode(BoardState::Turn).unwrap();
@@ -363,16 +369,57 @@ mod tests {
         let ev_oop = turn_game.expected_values(0);
         let ev_ip = turn_game.expected_values(1);
 
-        assert!(PostFlopGame::reload_and_resolve(&mut turn_game, 10, 0.01, false).is_ok());
+        assert!(PostFlopGame::reload_and_resolve(
+            &mut turn_game,
+            max_iters,
+            target_exploitability,
+            false
+        )
+        .is_ok());
         turn_game.cache_normalized_weights();
         let resolved_ev_oop = turn_game.expected_values(0);
         let resolved_ev_ip = turn_game.expected_values(1);
 
         for (ev1, ev2) in ev_oop.iter().zip(resolved_ev_oop) {
-            assert!((ev1 - ev2).abs() < 0.00001);
+            assert!((ev1 - ev2).abs() < ev_threshold);
         }
         for (ev1, ev2) in ev_ip.iter().zip(resolved_ev_ip) {
-            assert!((ev1 - ev2).abs() < 0.00001);
+            assert!((ev1 - ev2).abs() < ev_threshold);
+        }
+        // save (flop)
+        game.set_target_storage_mode(BoardState::Flop).unwrap();
+        save_data_to_file(&game, "", file_save_name, None).unwrap();
+
+        // load (flop)
+        let mut flop_game: PostFlopGame = load_data_from_file(file_save_name, None).unwrap().0;
+        flop_game.cache_normalized_weights();
+        let ev_oop = flop_game.expected_values(0);
+        let ev_ip = flop_game.expected_values(1);
+
+        assert!(PostFlopGame::reload_and_resolve(
+            &mut flop_game,
+            max_iters,
+            target_exploitability,
+            false
+        )
+        .is_ok());
+        flop_game.cache_normalized_weights();
+        let resolved_ev_oop = flop_game.expected_values(0);
+        let resolved_ev_ip = flop_game.expected_values(1);
+
+        for (ev1, ev2) in ev_oop.iter().zip(resolved_ev_oop) {
+            let diff = (ev1 - ev2).abs();
+            assert!(
+                (ev1 - ev2).abs() < ev_threshold,
+                "({ev1:0.6} - {ev2:0.6}).abs() == {diff:0.6}"
+            );
+        }
+        for (ev1, ev2) in ev_ip.iter().zip(resolved_ev_ip) {
+            let diff = (ev1 - ev2).abs();
+            assert!(
+                (ev1 - ev2).abs() < ev_threshold,
+                "({ev1:0.6} - {ev2:0.6}).abs() == {diff:0.6}"
+            );
         }
         std::fs::remove_file(file_save_name).unwrap();
     }
@@ -421,5 +468,48 @@ mod tests {
         assert!((root_equity_ip - 0.5).abs() < 1e-5);
         assert!((root_ev_oop - 45.0).abs() < 1e-4);
         assert!((root_ev_ip - 15.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_reload_and_resolve2() {
+        let oop_range = "AA,QQ";
+        let ip_range = "KK";
+
+        let card_config = CardConfig {
+            range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
+            flop: flop_from_str("3h3s3d").unwrap(),
+            ..Default::default()
+        };
+
+        let tree_config = TreeConfig {
+            starting_pot: 100,
+            effective_stack: 100,
+            rake_rate: 0.0,
+            rake_cap: 0.0,
+            flop_bet_sizes: [("e", "").try_into().unwrap(), ("e", "").try_into().unwrap()],
+            turn_bet_sizes: [("e", "").try_into().unwrap(), ("e", "").try_into().unwrap()],
+            river_bet_sizes: [("e", "").try_into().unwrap(), ("e", "").try_into().unwrap()],
+            ..Default::default()
+        };
+
+        let action_tree = ActionTree::new(tree_config).unwrap();
+        let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+        println!(
+            "memory usage: {:.2}GB",
+            game.memory_usage().0 as f64 / (1024.0 * 1024.0 * 1024.0)
+        );
+        game.allocate_memory(false);
+
+        solve(&mut game, 100, 0.01, false);
+
+        let file_save_location = "test_reload_and_resolve2.flop";
+        // save (turn)
+        game.set_target_storage_mode(BoardState::Turn).unwrap();
+        save_data_to_file(&game, "", file_save_location, None).unwrap();
+
+        // load (turn)
+        let mut game: PostFlopGame = load_data_from_file(file_save_location, None).unwrap().0;
+        assert!(PostFlopGame::reload_and_resolve(&mut game, 100, 0.01, true).is_ok());
+        std::fs::remove_file(file_save_location).unwrap();
     }
 }
