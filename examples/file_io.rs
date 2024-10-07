@@ -77,8 +77,9 @@ fn main() {
         game2.target_memory_usage() as f64 / (1024.0 * 1024.0)
     );
 
-    // overwrite the file with the truncated game tree
-    // game tree constructed from this file cannot access information after the river deal
+    // Overwrite the file with the truncated game tree. The game tree
+    // constructed from this file cannot access information after the turn; this
+    // data will need to be recomputed via `PostFlopGame::reload_and_resolve`.
     save_data_to_file(&game2, "memo string", file_save_name, None).unwrap();
 
     println!("Reloading from Turn Save and Resolving...");
@@ -97,7 +98,7 @@ fn main() {
 
     println!("\n-----------------------------------------");
     println!("Saving [Flop Save] to {}", file_save_name);
-    // discard information after the river deal when serializing
+    // discard information after the flop deal when serializing
     // this operation does not lose any information of the game tree itself
     game2.set_target_storage_mode(BoardState::Flop).unwrap();
 
@@ -112,17 +113,17 @@ fn main() {
     );
 
     // overwrite the file with the truncated game tree
-    // game tree constructed from this file cannot access information after the river deal
-    save_data_to_file(&game2, "memo string", file_save_name, None).unwrap();
+    // game tree constructed from this file cannot access information after the flop deal
+    save_data_to_file(&game2, "This is a flop save", file_save_name, None).unwrap();
 
-    println!("Reloading from River Save and Resolving...");
-    let river_solve_start = time::Instant::now();
+    println!("Reloading from Flop Save and Resolving...");
+    let flop_solve_start = time::Instant::now();
     let game3 =
         PostFlopGame::copy_reload_and_resolve(&game2, 100, target_exploitability, true).unwrap();
 
     println!(
-        "River solve: {} seconds",
-        river_solve_start.elapsed().as_secs()
+        "\nFlop solve: {} seconds",
+        flop_solve_start.elapsed().as_secs()
     );
 
     for (i, (a, b)) in game2.strategy().iter().zip(game3.strategy()).enumerate() {
