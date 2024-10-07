@@ -863,7 +863,7 @@ impl PostFlopGame {
             normalized_strategy(node.strategy(), num_actions)
         };
 
-        let locking = self.locking_strategy(&node);
+        let locking = self.locking_strategy(node);
         apply_locking_strategy(&mut ret, locking);
 
         ret.chunks_exact_mut(num_hands).for_each(|chunk| {
