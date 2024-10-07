@@ -7,7 +7,7 @@ use std::mem::{self, MaybeUninit};
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct BuildTreeInfo {
     flop_index: usize,
     turn_index: usize,
@@ -519,10 +519,18 @@ impl PostFlopGame {
         ) = self.card_config.isomorphism(&self.private_cards);
     }
 
-    /// Initializes the root node of game tree.
+    /// Initializes the root node of game tree and recursively build the tree.
+    ///
+    /// This function is responsible for computing the number of nodes required
+    /// for each street (via `count_nodes_per_street()`), allocating
+    /// `PostFlopNode`s to `self.node_arena`, and calling `build_tree_recursive`,
+    /// which recursively visits all nodes and, among other things, initializes
+    /// the child/parent relation.
+    ///
+    /// This does _not_ allocate global storage (e.g., `self.storage1`, etc).
     fn init_root(&mut self) -> Result<(), String> {
-        let num_nodes = self.count_num_nodes();
-        let total_num_nodes = num_nodes[0] + num_nodes[1] + num_nodes[2];
+        let nodes_per_street = self.count_nodes_per_street();
+        let total_num_nodes = nodes_per_street[0] + nodes_per_street[1] + nodes_per_street[2];
 
         if total_num_nodes > u32::MAX as u64
             || mem::size_of::<PostFlopNode>() as u64 * total_num_nodes > isize::MAX as u64
@@ -530,15 +538,15 @@ impl PostFlopGame {
             return Err("Too many nodes".to_string());
         }
 
-        self.num_nodes = num_nodes;
+        self.num_nodes_per_street = nodes_per_street;
         self.node_arena = (0..total_num_nodes)
             .map(|_| MutexLike::new(PostFlopNode::default()))
             .collect::<Vec<_>>();
         self.clear_storage();
 
         let mut info = BuildTreeInfo {
-            turn_index: num_nodes[0] as usize,
-            river_index: (num_nodes[0] + num_nodes[1]) as usize,
+            turn_index: nodes_per_street[0] as usize,
+            river_index: (nodes_per_street[0] + nodes_per_street[1]) as usize,
             ..Default::default()
         };
 
@@ -584,9 +592,10 @@ impl PostFlopGame {
         self.storage_chance = Vec::new();
     }
 
-    /// Counts the number of nodes in the game tree.
+    /// Counts the number of nodes in the game tree per street, accounting for
+    /// isomorphism.
     #[inline]
-    fn count_num_nodes(&self) -> [u64; 3] {
+    fn count_nodes_per_street(&self) -> [u64; 3] {
         let (turn_coef, river_coef) = match (self.card_config.turn, self.card_config.river) {
             (NOT_DEALT, _) => {
                 let mut river_coef = 0;
@@ -988,7 +997,7 @@ impl PostFlopGame {
 
         if self.card_config.river != NOT_DEALT {
             self.bunching_arena = arena;
-            self.assign_zero_weights();
+            self.assign_zero_weights_to_dead_cards();
             return Ok(());
         }
 
@@ -1043,7 +1052,7 @@ impl PostFlopGame {
 
                         let player_swap = swap_option.map(|swap| {
                             let mut tmp = (0..player_len).collect::<Vec<_>>();
-                            apply_swap(&mut tmp, &swap[player]);
+                            apply_swap_list(&mut tmp, &swap[player]);
                             tmp
                         });
 
@@ -1065,8 +1074,8 @@ impl PostFlopGame {
                             let slices = if let Some(swap) = swap_option {
                                 tmp.0.extend_from_slice(&arena[index..index + opponent_len]);
                                 tmp.1.extend_from_slice(opponent_strength);
-                                apply_swap(&mut tmp.0, &swap[player ^ 1]);
-                                apply_swap(&mut tmp.1, &swap[player ^ 1]);
+                                apply_swap_list(&mut tmp.0, &swap[player ^ 1]);
+                                apply_swap_list(&mut tmp.1, &swap[player ^ 1]);
                                 (tmp.0.as_slice(), &tmp.1)
                             } else {
                                 (&arena[index..index + opponent_len], opponent_strength)
@@ -1103,7 +1112,7 @@ impl PostFlopGame {
 
         if self.card_config.turn != NOT_DEALT {
             self.bunching_arena = arena;
-            self.assign_zero_weights();
+            self.assign_zero_weights_to_dead_cards();
             return Ok(());
         }
 
@@ -1137,7 +1146,7 @@ impl PostFlopGame {
 
                 let player_swap = swap_option.map(|swap| {
                     let mut tmp = (0..player_len).collect::<Vec<_>>();
-                    apply_swap(&mut tmp, &swap[player]);
+                    apply_swap_list(&mut tmp, &swap[player]);
                     tmp
                 });
 
@@ -1154,7 +1163,7 @@ impl PostFlopGame {
                     let slice = &arena[index..index + opponent_len];
                     let slice = if let Some(swap) = swap_option {
                         tmp.extend_from_slice(slice);
-                        apply_swap(&mut tmp, &swap[player ^ 1]);
+                        apply_swap_list(&mut tmp, &swap[player ^ 1]);
                         &tmp
                     } else {
                         slice
@@ -1181,7 +1190,7 @@ impl PostFlopGame {
         }
 
         self.bunching_arena = arena;
-        self.assign_zero_weights();
+        self.assign_zero_weights_to_dead_cards();
         Ok(())
     }
 
@@ -1416,7 +1425,7 @@ impl PostFlopGame {
         Ok(info)
     }
 
-    /// Allocates memory recursively.
+    /// Assigns allocated storage memory.
     fn allocate_memory_nodes(&mut self) {
         let num_bytes = if self.is_compression_enabled { 2 } else { 4 };
         let mut action_counter = 0;
@@ -1446,5 +1455,9 @@ impl PostFlopGame {
                 ip_counter += num_bytes * node.num_elements_ip as usize;
             }
         }
+    }
+
+    pub fn get_state(&self) -> &State {
+        &self.state
     }
 }

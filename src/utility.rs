@@ -227,9 +227,14 @@ pub(crate) fn encode_unsigned_slice(dst: &mut [u16], slice: &[f32]) -> f32 {
     scale
 }
 
-/// Applies the given swap to the given slice.
+/// Applies the given list of swaps to the given slice.
+///
+/// # Arguments
+///
+/// * `slice` - mutable slice to perform swaps on
+/// * `swap_list` - a list of index pairs to swap
 #[inline]
-pub(crate) fn apply_swap<T>(slice: &mut [T], swap_list: &[(u16, u16)]) {
+pub(crate) fn apply_swap_list<T>(slice: &mut [T], swap_list: &[(u16, u16)]) {
     for &(i, j) in swap_list {
         unsafe {
             ptr::swap(
@@ -425,13 +430,13 @@ fn compute_cfvalue_recursive<T: Game>(
             let swap_list = &game.isomorphic_swap(node, i)[player];
             let tmp = row_mut(&mut cfv_actions, isomorphic_index as usize, num_hands);
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
 
             result_f64.iter_mut().zip(&*tmp).for_each(|(r, &v)| {
                 *r += v as f64;
             });
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
         }
 
         result.iter_mut().zip(&result_f64).for_each(|(r, &v)| {
@@ -637,13 +642,13 @@ fn compute_best_cfv_recursive<T: Game>(
             let swap_list = &game.isomorphic_swap(node, i)[player];
             let tmp = row_mut(&mut cfv_actions, isomorphic_index as usize, num_hands);
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
 
             result_f64.iter_mut().zip(&*tmp).for_each(|(r, &v)| {
                 *r += v as f64;
             });
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
         }
 
         result.iter_mut().zip(&result_f64).for_each(|(r, &v)| {

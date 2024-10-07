@@ -9,8 +9,11 @@ use std::mem::MaybeUninit;
 use crate::alloc::*;
 
 struct DiscountParams {
+    // coefficient for accumulated positive regrets
     alpha_t: f32,
+    // coefficient for accumulated negative regrets
     beta_t: f32,
+    // contributions to average strategy
     gamma_t: f32,
 }
 
@@ -132,7 +135,16 @@ pub fn solve_step<T: Game>(game: &T, current_iteration: u32) {
     }
 }
 
-/// Recursively solves the counterfactual values.
+/// Recursively solves the counterfactual values and store them in `result`.
+///
+/// # Arguments
+///
+/// * `result` - slice to store resulting counterfactual regret values
+/// * `game` - reference to the game we are solving
+/// * `node` - current node we are solving
+/// * `player` - current player we are solving for
+/// * `cfreach` - the probability of reaching this point with a particular private hand
+/// * `params` - the DiscountParams that parametrize the solver
 fn solve_recursive<T: Game>(
     result: &mut [MaybeUninit<f32>],
     game: &T,
@@ -157,7 +169,14 @@ fn solve_recursive<T: Game>(
         return;
     }
 
-    // allocate memory for storing the counterfactual values
+    // Allocate memory for storing the counterfactual values. Conceptually this
+    // is a `num_actions * num_hands` 2-dimensional array, where the `i`th
+    // row (which has length `num_hands`) corresponds to the cfvalues of each
+    // hand after taking the `i`th action.
+    //
+    // Rows are obtained using operations from `sliceop` (e.g., `sliceop::row_mut()`).
+    //
+    // `cfv_actions` will be written to by recursive calls to `solve_recursive`.
     #[cfg(feature = "custom-alloc")]
     let cfv_actions = MutexLike::new(Vec::with_capacity_in(num_actions * num_hands, StackAlloc));
     #[cfg(not(feature = "custom-alloc"))]
@@ -189,13 +208,15 @@ fn solve_recursive<T: Game>(
             );
         });
 
-        // use 64-bit floating point values
+        // use 64-bit floating point values for precision during summations
+        // before demoting back to f32
         #[cfg(feature = "custom-alloc")]
         let mut result_f64 = Vec::with_capacity_in(num_hands, StackAlloc);
         #[cfg(not(feature = "custom-alloc"))]
         let mut result_f64 = Vec::with_capacity(num_hands);
 
-        // sum up the counterfactual values
+        // compute the strided summation of the counterfactual values for each
+        // hand and store in `result_f64`
         let mut cfv_actions = cfv_actions.lock();
         unsafe { cfv_actions.set_len(num_actions * num_hands) };
         sum_slices_f64_uninit(result_f64.spare_capacity_mut(), &cfv_actions);
@@ -209,13 +230,13 @@ fn solve_recursive<T: Game>(
             let swap_list = &game.isomorphic_swap(node, i)[player];
             let tmp = row_mut(&mut cfv_actions, isomorphic_index as usize, num_hands);
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
 
             result_f64.iter_mut().zip(&*tmp).for_each(|(r, &v)| {
                 *r += v as f64;
             });
 
-            apply_swap(tmp, swap_list);
+            apply_swap_list(tmp, swap_list);
         }
 
         result.iter_mut().zip(&result_f64).for_each(|(r, &v)| {
@@ -236,7 +257,7 @@ fn solve_recursive<T: Game>(
             );
         });
 
-        // compute the strategy by regret-maching algorithm
+        // compute the strategy by regret-matching algorithm
         let mut strategy = if game.is_compression_enabled() {
             regret_matching_compressed(node.regrets_compressed(), num_actions)
         } else {
@@ -247,7 +268,17 @@ fn solve_recursive<T: Game>(
         let locking = game.locking_strategy(node);
         apply_locking_strategy(&mut strategy, locking);
 
-        // sum up the counterfactual values
+        // Compute the counterfactual values for each hand, which for hand `h` is
+        // computed to be the sum over actions `a` of the frequency with which
+        // `h` takes action `a` and the regret of hand `h` taking action `a`.
+        // In pseudocode, this is:
+        //
+        // ```
+        // result[h] = sum([freq(h, a) * regret(h, a) for a in actions])
+        // ```
+        //
+        // This sum-of-products us computed as a fused multiply-add using
+        // `fma_slices_uninit` and is stored in `result`.
         let mut cfv_actions = cfv_actions.lock();
         unsafe { cfv_actions.set_len(num_actions * num_hands) };
         let result = fma_slices_uninit(result, &strategy, &cfv_actions);
@@ -299,6 +330,7 @@ fn solve_recursive<T: Game>(
             node.set_regret_scale(new_scale);
         } else {
             // update the cumulative strategy
+            // - `gamma` is used to discount cumulative strategy contributions
             let gamma = params.gamma_t;
             let cum_strategy = node.strategy_mut();
             cum_strategy.iter_mut().zip(&strategy).for_each(|(x, y)| {
@@ -306,6 +338,8 @@ fn solve_recursive<T: Game>(
             });
 
             // update the cumulative regret
+            // - alpha is used to discount positive cumulative regrets
+            // - beta is used to discount negative cumulative regrets
             let (alpha, beta) = (params.alpha_t, params.beta_t);
             let cum_regret = node.regrets_mut();
             cum_regret.iter_mut().zip(&*cfv_actions).for_each(|(x, y)| {
@@ -380,6 +414,18 @@ fn regret_matching(regret: &[f32], num_actions: usize) -> Vec<f32, StackAlloc> {
 }
 
 /// Computes the strategy by regret-matching algorithm.
+///
+/// The resulting strategy has each element (e.g., a hand like **AdQs**) take
+/// an action proportional to its regret, where negative regrets are interpreted
+/// as zero.
+///
+/// # Arguments
+///
+/// * `regret` - slice of regrets for the current decision point, one "row" of
+///   for each action. The `i`th row contains the regrets of each strategically
+///   distinct element (e.g., in holdem an element would be a hole card) for
+///   taking the `i`th action.
+/// * `num_actions` - the number of actions represented in `regret`.
 #[cfg(not(feature = "custom-alloc"))]
 #[inline]
 fn regret_matching(regret: &[f32], num_actions: usize) -> Vec<f32> {
@@ -391,10 +437,15 @@ fn regret_matching(regret: &[f32], num_actions: usize) -> Vec<f32> {
     unsafe { strategy.set_len(regret.len()) };
 
     let row_size = regret.len() / num_actions;
+
+    // We want to normalize each element's strategy, so compute the element-wise
+    // denominator by computing the strided summation of strategy
     let mut denom = Vec::with_capacity(row_size);
     sum_slices_uninit(denom.spare_capacity_mut(), &strategy);
     unsafe { denom.set_len(row_size) };
 
+    // We set the default to be equally distributed across all options. This is
+    // used when a strategy for a particular hand is uniformly zero.
     let default = 1.0 / num_actions as f32;
     strategy.chunks_exact_mut(row_size).for_each(|row| {
         div_slice(row, &denom, default);
