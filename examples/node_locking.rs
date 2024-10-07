@@ -27,7 +27,7 @@ fn normal_node_locking() {
 
     // node locking must be performed after allocating memory and before solving
     game.play(1); // OOP all-in
-    game.lock_current_node(&[0.25, 0.75]); // lock IP's strategy: 25% fold, 75% call
+    let _ = game.lock_current_node(&[0.25, 0.75]); // lock IP's strategy: 25% fold, 75% call
     game.back_to_root();
 
     solve(&mut game, 1000, 0.001, false);
@@ -42,7 +42,7 @@ fn normal_node_locking() {
 
     game.allocate_memory(false);
     game.play(1);
-    game.lock_current_node(&[0.5, 0.5]); // lock IP's strategy: 50% fold, 50% call
+    let _ = game.lock_current_node(&[0.5, 0.5]); // lock IP's strategy: 50% fold, 50% call
     game.back_to_root();
 
     solve(&mut game, 1000, 0.001, false);
@@ -77,7 +77,7 @@ fn partial_node_locking() {
     game.allocate_memory(false);
 
     // lock OOP's strategy: only JJ is locked and the rest is not
-    game.lock_current_node(&[0.8, 0.0, 0.0, 0.2, 0.0, 0.0]); // JJ: 80% check, 20% all-in
+    let _ = game.lock_current_node(&[0.8, 0.0, 0.0, 0.2, 0.0, 0.0]); // JJ: 80% check, 20% all-in
 
     solve(&mut game, 1000, 0.001, false);
     game.cache_normalized_weights();
