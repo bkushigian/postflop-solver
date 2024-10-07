@@ -854,21 +854,14 @@ impl PostFlopGame {
         target_exploitability: f32,
         print_progress: bool,
     ) -> Result<PostFlopGame, String> {
-        println!("Start hacky_reload_and_resolve");
         let card_config = game.card_config.clone();
         let action_tree = ActionTree::new(game.tree_config.clone())?;
         let target_storage_mode = game.target_storage_mode();
 
-        print!("Building new game...");
         let mut new_game = PostFlopGame::with_config(card_config, action_tree)?;
-        println!("Done!");
-
-        print!("Allocating memory...");
         new_game.allocate_memory(game.is_compression_enabled());
-        println!("Done!");
 
         // Copy data into new game
-        print!("Copying memory...");
         for (dst, src) in new_game.storage1.iter_mut().zip(&game.storage1) {
             *dst = *src;
         }
@@ -881,7 +874,6 @@ impl PostFlopGame {
         for (dst, src) in new_game.storage_ip.iter_mut().zip(&game.storage_ip) {
             *dst = *src;
         }
-        println!("Done!");
 
         if target_storage_mode == BoardState::River {
             return Ok(new_game);
