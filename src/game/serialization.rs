@@ -103,10 +103,10 @@ impl PostFlopGame {
 static VERSION_STR: &str = "2023-03-19";
 
 thread_local! {
-    static PTR_BASE: Cell<[*const u8; 2]> = Cell::new([ptr::null(); 2]);
-    static CHANCE_BASE: Cell<*const u8> = Cell::new(ptr::null());
-    static PTR_BASE_MUT: Cell<[*mut u8; 3]> = Cell::new([ptr::null_mut(); 3]);
-    static CHANCE_BASE_MUT: Cell<*mut u8> = Cell::new(ptr::null_mut());
+    static PTR_BASE: Cell<[*const u8; 2]> = const {Cell::new([ptr::null(); 2])};
+    static CHANCE_BASE: Cell<*const u8> = const {Cell::new(ptr::null())};
+    static PTR_BASE_MUT: Cell<[*mut u8; 3]> = const {Cell::new([ptr::null_mut(); 3])};
+    static CHANCE_BASE_MUT: Cell<*mut u8> = const {Cell::new(ptr::null_mut())};
 }
 
 impl Encode for PostFlopGame {
