@@ -58,7 +58,13 @@ impl PostFlopGame {
         }
     }
 
-    /// Returns the number of storage elements required for the target storage mode.
+    /// Returns the number of storage elements required for the target storage mode:
+    /// `[|storage1|, |storage2|, |storage_ip|, |storage_chance|]`
+    ///
+    /// If this is a River save (`target_storage_mode == BoardState::River`)
+    /// then do not store cfvalues.
+    ///
+    /// If this is a Flop save,
     fn num_target_storage(&self) -> [usize; 4] {
         if self.state <= State::TreeBuilt {
             return [0; 4];
@@ -71,8 +77,8 @@ impl PostFlopGame {
         }
 
         let mut node_index = match self.target_storage_mode {
-            BoardState::Flop => self.num_nodes[0],
-            _ => self.num_nodes[0] + self.num_nodes[1],
+            BoardState::Flop => self.num_nodes_per_street[0],
+            _ => self.num_nodes_per_street[0] + self.num_nodes_per_street[1],
         } as usize;
 
         let mut num_storage = [0; 4];
@@ -128,7 +134,7 @@ impl Encode for PostFlopGame {
         self.removed_lines.encode(encoder)?;
         self.action_root.encode(encoder)?;
         self.target_storage_mode.encode(encoder)?;
-        self.num_nodes.encode(encoder)?;
+        self.num_nodes_per_street.encode(encoder)?;
         self.is_compression_enabled.encode(encoder)?;
         self.num_storage.encode(encoder)?;
         self.num_storage_ip.encode(encoder)?;
@@ -140,8 +146,10 @@ impl Encode for PostFlopGame {
         self.storage_chance[0..num_storage[3]].encode(encoder)?;
 
         let num_nodes = match self.target_storage_mode {
-            BoardState::Flop => self.num_nodes[0] as usize,
-            BoardState::Turn => (self.num_nodes[0] + self.num_nodes[1]) as usize,
+            BoardState::Flop => self.num_nodes_per_street[0] as usize,
+            BoardState::Turn => {
+                (self.num_nodes_per_street[0] + self.num_nodes_per_street[1]) as usize
+            }
             BoardState::River => self.node_arena.len(),
         };
 
@@ -193,7 +201,7 @@ impl Decode for PostFlopGame {
             removed_lines: Decode::decode(decoder)?,
             action_root: Decode::decode(decoder)?,
             storage_mode: Decode::decode(decoder)?,
-            num_nodes: Decode::decode(decoder)?,
+            num_nodes_per_street: Decode::decode(decoder)?,
             is_compression_enabled: Decode::decode(decoder)?,
             num_storage: Decode::decode(decoder)?,
             num_storage_ip: Decode::decode(decoder)?,
