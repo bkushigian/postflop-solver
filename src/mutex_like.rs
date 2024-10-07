@@ -68,7 +68,7 @@ impl<T: ?Sized> MutexLike<T> {
     }
 }
 
-impl<T: ?Sized + Default> Default for MutexLike<T> {
+impl<T: Default> Default for MutexLike<T> {
     #[inline]
     fn default() -> Self {
         Self::new(Default::default())

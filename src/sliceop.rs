@@ -360,19 +360,3 @@ pub(crate) fn row<T>(slice: &[T], index: usize, row_size: usize) -> &[T] {
 pub(crate) fn row_mut<T>(slice: &mut [T], index: usize, row_size: usize) -> &mut [T] {
     &mut slice[index * row_size..(index + 1) * row_size]
 }
-
-#[inline]
-pub(crate) fn transpose<T: Copy>(input: &[T], m: usize, n: usize) -> Vec<T> {
-    let mut output = Vec::with_capacity(m * n);
-    unsafe {
-        output.set_len(m * n);
-    }
-
-    for i in 0..m {
-        for j in 0..n {
-            output[j * m + i] = input[i * n + j];
-        }
-    }
-
-    output
-}

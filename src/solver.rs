@@ -58,6 +58,19 @@ pub fn solve<T: Game>(
     }
 
     let mut root = game.root();
+
+    // Run solve_recursive once to initialize uninitialized strat memory
+    for player in 0..2 {
+        let mut result = Vec::with_capacity(game.num_private_hands(player));
+        solve_recursive(
+            result.spare_capacity_mut(),
+            game,
+            &mut root,
+            player,
+            game.initial_weights(player ^ 1),
+            &DiscountParams::new(0),
+        );
+    }
     let mut exploitability = compute_exploitability(game);
 
     if print_progress {
@@ -66,7 +79,7 @@ pub fn solve<T: Game>(
         io::stdout().flush().unwrap();
     }
 
-    for t in 0..max_num_iterations {
+    for t in 1..max_num_iterations {
         if exploitability <= target_exploitability {
             break;
         }
@@ -86,7 +99,7 @@ pub fn solve<T: Game>(
             );
         }
 
-        if (t + 1) % 10 == 0 || t + 1 == max_num_iterations {
+        if t % 10 == 0 || t + 1 == max_num_iterations {
             exploitability = compute_exploitability(game);
         }
 
@@ -135,75 +148,6 @@ pub fn solve_step<T: Game>(game: &T, current_iteration: u32) {
     }
 }
 
-/// Performs Discounted CFR algorithm until the given number of iterations or exploitability is
-/// satisfied.
-///
-/// This method returns the exploitability of the obtained strategy.
-/// TODO: Should we move this to the `crate::base` module?
-pub fn solve_with_node_as_root<T: Game>(
-    game: &mut T,
-    mut root: MutexGuardLike<T::Node>,
-    max_num_iterations: u32,
-    target_exploitability: f32,
-    print_progress: bool,
-) -> f32 {
-    if game.is_solved() {
-        panic!("Game is already solved");
-    }
-
-    if !game.is_ready() {
-        panic!("Game is not ready");
-    }
-
-    let mut exploitability = compute_exploitability(game);
-
-    if print_progress {
-        print!("iteration: 0 / {max_num_iterations} ");
-        print!("(exploitability = {exploitability:.4e})");
-        io::stdout().flush().unwrap();
-    }
-
-    for t in 0..max_num_iterations {
-        if exploitability <= target_exploitability {
-            break;
-        }
-
-        let params = DiscountParams::new(t);
-
-        // alternating updates
-        for player in 0..2 {
-            let mut result = Vec::with_capacity(game.num_private_hands(player));
-            solve_recursive(
-                result.spare_capacity_mut(),
-                game,
-                &mut root,
-                player,
-                game.initial_weights(player ^ 1),
-                &params,
-            );
-        }
-
-        if (t + 1) % 10 == 0 || t + 1 == max_num_iterations {
-            exploitability = compute_exploitability(game);
-        }
-
-        if print_progress {
-            print!("\riteration: {} / {} ", t + 1, max_num_iterations);
-            print!("(exploitability = {exploitability:.4e})");
-            io::stdout().flush().unwrap();
-        }
-    }
-
-    if print_progress {
-        println!();
-        io::stdout().flush().unwrap();
-    }
-
-    finalize(game);
-
-    exploitability
-}
-
 /// Recursively solves the counterfactual values and store them in `result`.
 ///
 /// # Arguments
@@ -248,9 +192,10 @@ fn solve_recursive<T: Game>(
     //
     // Rows are obtained using operations from `sliceop` (e.g., `sliceop::row_mut()`).
     //
-    // `cfv_actions` will be written to by recursive calls to `solve_recursive`.
+    // `cfv_actions_hands` will be written to by recursive calls to `solve_recursive`.
     #[cfg(feature = "custom-alloc")]
-    let cfv_actions = MutexLike::new(Vec::with_capacity_in(num_actions * num_hands, StackAlloc));
+    let cfv_actions_hands =
+        MutexLike::new(Vec::with_capacity_in(num_actions * num_hands, StackAlloc));
     #[cfg(not(feature = "custom-alloc"))]
     let cfv_actions_hands = MutexLike::new(Vec::with_capacity(num_actions * num_hands));
 

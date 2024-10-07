@@ -1,8 +1,8 @@
 use super::*;
 use crate::bunching::*;
 use crate::interface::*;
-use crate::solve_with_node_as_root;
 use crate::utility::*;
+use std::collections::HashSet;
 use std::mem::{self, MaybeUninit};
 
 #[cfg(feature = "rayon")]
@@ -478,8 +478,8 @@ impl PostFlopGame {
             board_mask |= 1 << river;
         }
 
-        for player in 0..2 {
-            let (hands, weights) = range[player].get_hands_weights(board_mask);
+        for (player, r) in range.iter().enumerate() {
+            let (hands, weights) = r.get_hands_weights(board_mask);
             self.initial_weights[player] = weights;
             self.private_cards[player] = hands;
         }
@@ -814,154 +814,110 @@ impl PostFlopGame {
         info.num_storage_ip += node.num_elements_ip as u64;
     }
 
-    /* REBUILDING AND RESOLVING TREE */
-
-    pub fn rebuild_and_resolve_forgotten_streets(&mut self) -> Result<(), String> {
-        self.check_card_config()?;
-        self.init_root()?;
-        self.allocate_memory_after_load()?;
-        self.resolve_reloaded_nodes(1000, 0.01, false)
-    }
-
-    /// Return the node index for each root of the forgotten gametrees that were
-    /// omitted during a partial save.
+    /// reload_and_resolve
     ///
-    /// When we perform a partial save (e.g., a flop save), we lose
-    /// cfvalues/strategy data for all subtrees rooted at the forgotten street
-    /// (in the case of a flop save, this would be all subtrees rooted at the
-    /// beginning of the turn).
+    /// Reload forgotten streets and resolve to target exploitability.
     ///
-    /// To regain this information we need to resolve each of these subtrees
-    /// individually. This function collects the index of each such root.
-    pub fn collect_unsolved_roots_after_reload(&mut self) -> Result<Vec<usize>, String> {
-        match self.state {
-            State::SolvedFlop => {
-                let turn_root_nodes = self
-                    .node_arena
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, n)| {
-                        n.lock().turn != NOT_DEALT
-                            && n.lock().river == NOT_DEALT
-                            && matches!(n.lock().prev_action, Action::Chance(..))
-                    })
-                    .map(|(i, _)| i)
-                    .collect::<Vec<_>>();
-                Ok(turn_root_nodes)
-            }
-            State::SolvedTurn => {
-                let river_root_nodes = self
-                    .node_arena
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, n)| {
-                        n.lock().turn != NOT_DEALT
-                            && n.lock().river != NOT_DEALT
-                            && matches!(n.lock().prev_action, Action::Chance(..))
-                    })
-                    .map(|(i, _)| i)
-                    .collect::<Vec<_>>();
-                Ok(river_root_nodes)
-            }
-            State::Solved => Ok(vec![]),
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn resolve_reloaded_nodes(
-        &mut self,
-        max_num_iterations: u32,
+    /// Note: This currently wraps [`Self::copy_reload_and_resolve`] which is
+    /// not as memory efficient as it could be.
+    pub fn reload_and_resolve(
+        game: &mut PostFlopGame,
+        max_iterations: u32,
         target_exploitability: f32,
         print_progress: bool,
     ) -> Result<(), String> {
-        let nodes_to_solve = self.collect_unsolved_roots_after_reload()?;
-        self.state = State::MemoryAllocated;
-        println!("Found {} nodes to solve", nodes_to_solve.len());
-        for node_idx in nodes_to_solve {
-            let node = self.node_arena.get(node_idx).ok_or("Invalid node index")?;
-            let history = match node.lock().compute_history_recursive(self) {
-                Some(history) => history,
-                None => Err("Couldn't parse history from node")?,
-            };
-
-            self.apply_history(&history);
-            // NOTE:
-            // I _think_ this works. We don't actually modify the node, only
-            // data that is point to by the node.
-            let n = MutexLike::new(self.node().clone());
-
-            println!("While resolve_reload_nodes, node_idx: {:?}", node_idx);
-
-            solve_with_node_as_root(
-                self,
-                n.lock(),
-                max_num_iterations,
-                target_exploitability,
-                print_progress,
-            );
-        }
-        finalize(self);
-
+        *game = PostFlopGame::copy_reload_and_resolve(
+            game,
+            max_iterations,
+            target_exploitability,
+            print_progress,
+        )?;
         Ok(())
     }
 
-    /// Reallocate memory for full tree after performing a partial load. This
-    /// must be called after `init_root()`
-    pub fn allocate_memory_after_load(&mut self) -> Result<(), String> {
-        if self.state <= State::Uninitialized {
-            return Err("Game is not successfully initialized".to_string());
-        }
+    /// copy_reload_and_resolve
+    ///
+    /// Copy `game` into a new `PostFlopGame` and rebuild/resolve any forgotten
+    /// streets.
+    ///
+    /// The solver will run until either `max_iterations` iterations have passed or
+    ///
+    /// # Arguments
+    ///
+    /// * `game` - the game to copy, rebuild, and resolve
+    /// * `max_iterations` - the maximum number of iterations to run the solver for
+    /// * `target_exploitability` - target exploitability for a solution
+    /// * `print_progress` - print progress during the solve
+    pub fn copy_reload_and_resolve(
+        game: &PostFlopGame,
+        max_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
+    ) -> Result<PostFlopGame, String> {
+        let card_config = game.card_config.clone();
+        let action_tree = ActionTree::new(game.tree_config.clone())?;
+        let target_storage_mode = game.target_storage_mode();
 
-        if self.storage_mode == BoardState::River {
-            return Ok(());
-        }
+        let mut new_game = PostFlopGame::with_config(card_config, action_tree)?;
+        new_game.allocate_memory(game.is_compression_enabled());
 
-        let num_bytes = if self.is_compression_enabled { 2 } else { 4 };
-        if num_bytes * self.num_storage > isize::MAX as u64
-            || num_bytes * self.num_storage_chance > isize::MAX as u64
-        {
-            return Err("Memory usage exceeds maximum size".to_string());
-        }
-
-        // Only update the state when the loaded game has not been solved at all
-        if self.state < State::MemoryAllocated {
-            self.state = State::MemoryAllocated;
-        }
-        // self.is_compression_enabled = self.is_compression_enabled;
-
-        let old_storage1 = std::mem::replace(&mut self.storage1, vec![]);
-        let old_storage2 = std::mem::replace(&mut self.storage2, vec![]);
-        let old_storage_ip = std::mem::replace(&mut self.storage_ip, vec![]);
-        let old_storage_chance = std::mem::replace(&mut self.storage_chance, vec![]);
-
-        let storage_bytes = (num_bytes * self.num_storage) as usize;
-        let storage_ip_bytes = (num_bytes * self.num_storage_ip) as usize;
-        let storage_chance_bytes = (num_bytes * self.num_storage_chance) as usize;
-
-        self.storage1 = vec![0; storage_bytes];
-        self.storage2 = vec![0; storage_bytes];
-        self.storage_ip = vec![0; storage_ip_bytes];
-        self.storage_chance = vec![0; storage_chance_bytes];
-
-        self.allocate_memory_nodes(); // Assign node storage pointers
-
-        self.storage_mode = BoardState::River;
-        self.target_storage_mode = BoardState::River;
-
-        for (dst, src) in self.storage1.iter_mut().zip(&old_storage1) {
+        // Copy data into new game
+        for (dst, src) in new_game.storage1.iter_mut().zip(&game.storage1) {
             *dst = *src;
         }
-        for (dst, src) in self.storage2.iter_mut().zip(&old_storage2) {
+        for (dst, src) in new_game.storage2.iter_mut().zip(&game.storage2) {
             *dst = *src;
         }
-        for (dst, src) in self.storage_ip.iter_mut().zip(&old_storage_ip) {
+        for (dst, src) in new_game.storage_chance.iter_mut().zip(&game.storage_chance) {
             *dst = *src;
         }
-        for (dst, src) in self.storage_chance.iter_mut().zip(&old_storage_chance) {
+        for (dst, src) in new_game.storage_ip.iter_mut().zip(&game.storage_ip) {
             *dst = *src;
         }
-        Ok(())
+
+        if target_storage_mode == BoardState::River {
+            return Ok(new_game);
+        }
+
+        // Nodelock and resolve
+        let num_nodes_to_lock = match target_storage_mode {
+            BoardState::River => 0,
+            BoardState::Turn => game.num_nodes_per_street[0] + game.num_nodes_per_street[1],
+            BoardState::Flop => game.num_nodes_per_street[0],
+        };
+
+        // We are about to node lock a bunch of nodes to resolve more
+        // efficiently, so we preserve which keys were already locked to the
+        // current strategy
+        let already_locked_nodes = game.locking_strategy.keys().collect::<HashSet<&usize>>();
+        for node_index in 0..num_nodes_to_lock as usize {
+            // We can't ? because this tries to lock chance nodes
+            let _ = new_game.lock_node_at_index(node_index);
+        }
+
+        crate::solve(
+            &mut new_game,
+            max_iterations,
+            target_exploitability,
+            print_progress,
+        );
+
+        // Remove node locking from resolving but retain node locking passed in
+        // with `game`. Note that we _have to maintain the invariant that a
+        // node's index is in the game's locking_strategy if and only if
+        // node.is_locked == true._ That is:
+        //
+        //      game.node_arena[node_index].is_locked <=> node_index in game.locking_strategy.keys()
+        for node_index in 0..num_nodes_to_lock as usize {
+            if !already_locked_nodes.contains(&node_index) {
+                new_game.node_arena[node_index].lock().is_locked = false;
+                new_game.locking_strategy.remove(&node_index);
+            }
+        }
+
+        Ok(new_game)
     }
+
     /// Sets the bunching effect.
     fn set_bunching_effect_internal(&mut self, bunching_data: &BunchingData) -> Result<(), String> {
         self.bunching_num_dead_cards = bunching_data.fold_ranges().len() * 2;
@@ -1610,6 +1566,11 @@ impl PostFlopGame {
     }
 
     pub fn get_state(&self) -> &State {
-        return &self.state;
+        &self.state
+    }
+
+    #[inline]
+    pub fn is_partially_solved(&self) -> bool {
+        self.state >= State::SolvedFlop
     }
 }

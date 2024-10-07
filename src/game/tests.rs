@@ -869,7 +869,7 @@ fn node_locking() {
 
     game.allocate_memory(false);
     game.play(1); // all-in
-    game.lock_current_strategy(&[0.25, 0.75]); // 25% fold, 75% call
+    game.lock_current_node(&[0.25, 0.75]); // 25% fold, 75% call
     game.back_to_root();
 
     solve(&mut game, 1000, 0.0, false);
@@ -889,7 +889,7 @@ fn node_locking() {
 
     game.allocate_memory(false);
     game.play(1); // all-in
-    game.lock_current_strategy(&[0.5, 0.5]); // 50% fold, 50% call
+    game.lock_current_node(&[0.5, 0.5]); // 50% fold, 50% call
     game.back_to_root();
 
     solve(&mut game, 1000, 0.0, false);
@@ -929,7 +929,7 @@ fn node_locking_partial() {
     let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
 
     game.allocate_memory(false);
-    game.lock_current_strategy(&[0.8, 0.0, 0.0, 0.2, 0.0, 0.0]); // JJ -> 80% check, 20% all-in
+    game.lock_current_node(&[0.8, 0.0, 0.0, 0.2, 0.0, 0.0]); // JJ -> 80% check, 20% all-in
 
     solve(&mut game, 1000, 0.0, false);
     game.cache_normalized_weights();
@@ -970,7 +970,7 @@ fn node_locking_isomorphism() {
 
     game.allocate_memory(false);
     game.apply_history(&[0, 0, 15, 0, 0, 14]); // Turn: Spades, River: Hearts
-    game.lock_current_strategy(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]); // AhKh -> check
+    game.lock_current_node(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]); // AhKh -> check
 
     finalize(&mut game);
 

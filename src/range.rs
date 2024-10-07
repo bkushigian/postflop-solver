@@ -990,6 +990,7 @@ impl FromStr for Range {
     }
 }
 
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for Range {
     #[inline]
     fn to_string(&self) -> String {
