@@ -4,6 +4,8 @@ use std::mem;
 
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
+use serde::Deserialize;
+use serde::Serialize;
 
 /// A type representing a card, defined as an alias of `u8`.
 ///
@@ -34,7 +36,7 @@ pub const NOT_DEALT: Card = Card::MAX;
 ///     river: NOT_DEALT,
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct CardConfig {
     /// Initial range of each player.

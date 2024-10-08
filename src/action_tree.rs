@@ -4,6 +4,7 @@ use crate::mutex_like::*;
 
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 pub(crate) const PLAYER_OOP: u8 = 0;
 pub(crate) const PLAYER_IP: u8 = 1;
@@ -44,7 +45,7 @@ pub enum Action {
 }
 
 /// An enum representing the board state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub enum BoardState {
@@ -79,7 +80,7 @@ pub enum BoardState {
 ///     merging_threshold: 0.1,
 /// };
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct TreeConfig {
     /// Initial state of the game tree (flop, turn, or river).

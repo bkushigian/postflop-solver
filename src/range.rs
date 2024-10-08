@@ -1,7 +1,10 @@
 use crate::card::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::fmt::Write;
+use serde::de::{self, SeqAccess, Visitor};
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt::{self, Write};
 use std::str::FromStr;
 
 #[cfg(feature = "bincode")]
@@ -949,6 +952,47 @@ impl Range {
                 }
             }
         }
+    }
+}
+
+impl Serialize for Range {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_seq(Some(self.data.len()))?.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Range {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RangeVisitor;
+
+        impl<'de> Visitor<'de> for RangeVisitor {
+            type Value = Range;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an array of 1326 floats")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut data = [0.0; 1326];
+                for i in 0..1326 {
+                    data[i] = seq
+                        .next_element()?
+                        .ok_or_else(|| de::Error::invalid_length(i, &self))?;
+                }
+                Ok(Range { data })
+            }
+        }
+
+        deserializer.deserialize_seq(RangeVisitor)
     }
 }
 
