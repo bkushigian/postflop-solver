@@ -659,7 +659,8 @@ impl PostFlopGame {
     /// [`cache_normalized_weights`]: #method.cache_normalized_weights
     /// [`expected_values_detail`]: #method.expected_values_detail
     pub fn expected_values(&self, player: usize) -> Vec<f32> {
-        if self.state != State::Solved {
+        if !self.is_partially_solved() {
+            println!("{:?}", self.state);
             panic!("Game is not solved");
         }
 
@@ -711,7 +712,7 @@ impl PostFlopGame {
     /// [`expected_values`]: #method.expected_value
     /// [`cache_normalized_weights`]: #method.cache_normalized_weights
     pub fn expected_values_detail(&self, player: usize) -> Vec<f32> {
-        if self.state != State::Solved {
+        if !self.is_partially_solved() {
             panic!("Game is not solved");
         }
 
@@ -813,10 +814,6 @@ impl PostFlopGame {
     ///
     /// **Time complexity:** *O*(#(actions) * #(private hands)).
     pub fn strategy(&self) -> Vec<f32> {
-        if self.state < State::MemoryAllocated {
-            panic!("Memory is not allocated");
-        }
-
         if self.is_terminal_node() {
             panic!("Terminal node is not allowed");
         }
@@ -826,6 +823,14 @@ impl PostFlopGame {
         }
 
         let node = self.node();
+        self.strategy_at_node(&node)
+    }
+
+    pub fn strategy_at_node(&self, node: &PostFlopNode) -> Vec<f32> {
+        if self.state < State::MemoryAllocated {
+            panic!("Memory is not allocated");
+        }
+
         let player = self.current_player();
         let num_actions = node.num_actions();
         let num_hands = self.num_private_hands(player);
@@ -836,7 +841,7 @@ impl PostFlopGame {
             normalized_strategy(node.strategy(), num_actions)
         };
 
-        let locking = self.locking_strategy(&node);
+        let locking = self.locking_strategy(node);
         apply_locking_strategy(&mut ret, locking);
 
         ret.chunks_exact_mut(num_hands).for_each(|chunk| {
@@ -850,6 +855,44 @@ impl PostFlopGame {
     #[inline]
     pub fn total_bet_amount(&self) -> [i32; 2] {
         self.total_bet_amount
+    }
+
+    /// Locks the strategy of the current node to the current strategy already in memory.
+    pub fn lock_current_strategy(&mut self) -> Result<(), String> {
+        if self.is_terminal_node() {
+            return Err("Cannot lock terminal nodes".to_string());
+        }
+
+        if self.is_chance_node() {
+            return Err("Cannot lock chance nodes".to_string());
+        }
+
+        let mut node = self.node();
+
+        let index = self.node_index(&node);
+        // Note: node.is_locked is tightly coupled with locking_strategy
+        // containing the node's index
+        node.is_locked = true;
+        self.locking_strategy
+            .insert(index, node.strategy().to_vec());
+        Ok(())
+    }
+
+    pub fn lock_node_at_index(&mut self, index: usize) -> Result<(), String> {
+        let mut node = self.node_arena[index].lock();
+        if node.is_terminal() {
+            return Err("Cannot lock terminal node".to_string());
+        }
+
+        if node.is_chance() {
+            return Err("Cannot lock chance node".to_string());
+        }
+
+        let strategy = self.strategy_at_node(&node);
+
+        node.is_locked = true;
+        self.locking_strategy.insert(index, strategy);
+        Ok(())
     }
 
     /// Locks the strategy of the current node.
@@ -867,21 +910,17 @@ impl PostFlopGame {
     /// This method must be called after allocating memory and before solving the game.
     /// Panics if the memory is not yet allocated or the game is already solved.
     /// Also, panics if the current node is a terminal node or a chance node.
-    pub fn lock_current_strategy(&mut self, strategy: &[f32]) {
+    pub fn lock_current_node(&mut self, strategy: &[f32]) -> Result<(), String> {
         if self.state < State::MemoryAllocated {
-            panic!("Memory is not allocated");
-        }
-
-        if self.state == State::Solved {
-            panic!("Game is already solved");
+            return Err("Memory is not allocated".to_string());
         }
 
         if self.is_terminal_node() {
-            panic!("Terminal node is not allowed");
+            return Err("Cannot lock terminal nodes".to_string());
         }
 
         if self.is_chance_node() {
-            panic!("Chance node is not allowed");
+            return Err("Cannot lock chance nodes".to_string());
         }
 
         let mut node = self.node();
@@ -922,6 +961,7 @@ impl PostFlopGame {
         node.is_locked = true;
         let index = self.node_index(&node);
         self.locking_strategy.insert(index, locking);
+        Ok(())
     }
 
     /// Unlocks the strategy of the current node.
@@ -994,7 +1034,7 @@ impl PostFlopGame {
 
     /// Returns the reference to the current node.
     #[inline]
-    fn node(&self) -> MutexGuardLike<PostFlopNode> {
+    pub fn node(&self) -> MutexGuardLike<PostFlopNode> {
         self.node_arena[self.node_history.last().cloned().unwrap_or(0)].lock()
     }
 
