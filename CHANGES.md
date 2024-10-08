@@ -1,5 +1,70 @@
 # List of breaking changes
 
+## v0.1.1
++ **Resolving and Reloading** v0.1.1 introduces capabilities to reload and
+  resolve. Partial saves and reloading were already possible, but there were not
+  good mechanisms in place to rebuild and resolve forgotten streets. Updates
+  include:
+
+  - **Updated Invariants for `PostFlopGame`**:
+
+    Previously `PostFlopGame::state` stored if a game had been allocated or solved.
+    This update expands `State` to account for partial solve information loaded
+    from disk. In particular, `State::Solved` has been expanded to
+
+    + `State::SolvedFlop`
+    + `State::SolvedTurn`
+    + `State::Solved`
+    
+    While `PostFlopGame::state` tracks the current solve status,
+    `PostFlopGame::storage_mode` tracks how much memory is allocated. After a
+    reload, `storage_mode` might be less than `BoardState::River`, meaning that
+    some memory has not been allocated.
+
+    For instance, if we run a flop solve (so a full tree startingat the flop)
+    and save it as a flop save (save flop data, discarding turn and river data),
+    only the flop data will be written to disk.  After reloading from disk, say
+    into variable `game`, the following will be true:
+
+    1. `game.storage_mode == BoardState::Flop`: This represents that only flop
+       memory is allocated (though not necessarily solved).
+
+    
+    2. `game.state == State::SolvedFlop`: This represents that flop data is
+      solved (but not turn/river).
+      
+    Allocating memory to store turn and river will update `storage_mode` to be
+    `BoardState::River`. Thus `storage_mode == BoardState::Flop` together with
+    `state == State::SolvedFlop` can be interpreted as "we've allocated the full
+    game tree but only flop nodes have real data.
+
+  - **Removed requirements for game to not be solved**: There were a lot of
+    places that panicked if the game was already solved (e.g., trying to solve
+    again, or node locking, etc). This felt like an unrealistic burden: we might
+    want to nodelock a game after solving it, for instance, to compute some
+    other results.
+
+  - **Added `reload_and_resolve_copy()`**: This function does the following:
+    1. Takes an input `g: PostFlopGame` that may be paritally loaded.
+    2. Creates a new game `ng` from `g`'s configuration
+    3. Initializes nodes and allocates memory for `ng`
+    4. Copies loaded data from `g` (i.e., if `g.state == State::SolvedTurn`,
+       then copy all flop and turn data)
+    5. Locks copied nodes
+    6. Solves `ng`
+    7. Unlocks (restoring previous locking to whatever was passed in from `g`)
+  
+  - **Added `reload_and_resolve()`**: Similar to `reload_and_resolve_copy`, this
+    modifies the supplied game in place. This is currently implemented using
+    `reload_and_resolve_copy()`, and required memory for both the input game and
+    the rebuilt game. This process overwrites the input game, so that memory
+    will be released.
+
+  - **Began replacing panics with Result<(), String>**: we should be able to
+    handle many instances of errors gracefully, so we've begun replacing
+    `panic!()`s with `Result<>`s
+
+
 ## 2023-10-01
 
 - `BetSizeCandidates` and `DonkSizeCandidates` are renamed to `BetSizeOptions` and `DonkSizeOptions`, respectively.
