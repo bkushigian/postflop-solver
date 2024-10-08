@@ -51,7 +51,6 @@ impl GameNode for PostFlopNode {
 
     #[inline]
     fn regrets(&self) -> &[f32] {
-        // TODO(Jacob): Something is causing either storage2 pointer to be off, or num_elements to be too big
         unsafe { slice::from_raw_parts(self.storage2 as *const f32, self.num_elements as usize) }
     }
 

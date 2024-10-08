@@ -127,9 +127,7 @@ impl Encode for PostFlopGame {
         VERSION_STR.to_string().encode(encoder)?;
 
         // Update state based on target storage whenever the state is solved
-        // TODO(Jacob): May be better to add is_solved() function onto state
-        // That would prevent bugs caused by new states being added
-        let saved_state = if self.state >= State::SolvedFlop {
+        let saved_state = if self.is_partially_solved() {
             match self.target_storage_mode {
                 BoardState::Flop => State::SolvedFlop,
                 BoardState::Turn => State::SolvedTurn,

@@ -814,10 +814,6 @@ impl PostFlopGame {
     ///
     /// **Time complexity:** *O*(#(actions) * #(private hands)).
     pub fn strategy(&self) -> Vec<f32> {
-        if self.state < State::MemoryAllocated {
-            panic!("Memory is not allocated");
-        }
-
         if self.is_terminal_node() {
             panic!("Terminal node is not allowed");
         }
@@ -827,27 +823,9 @@ impl PostFlopGame {
         }
 
         let node = self.node();
-        let player = self.current_player();
-        let num_actions = node.num_actions();
-        let num_hands = self.num_private_hands(player);
-
-        let mut ret = if self.is_compression_enabled {
-            normalized_strategy_compressed(node.strategy_compressed(), num_actions)
-        } else {
-            normalized_strategy(node.strategy(), num_actions)
-        };
-
-        let locking = self.locking_strategy(&node);
-        apply_locking_strategy(&mut ret, locking);
-
-        ret.chunks_exact_mut(num_hands).for_each(|chunk| {
-            self.apply_swap(chunk, player, false);
-        });
-
-        ret
+        self.strategy_at_node(&node)
     }
 
-    // TODO use in .strategy()
     pub fn strategy_at_node(&self, node: &PostFlopNode) -> Vec<f32> {
         if self.state < State::MemoryAllocated {
             panic!("Memory is not allocated");
