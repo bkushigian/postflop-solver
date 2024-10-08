@@ -1,4 +1,4 @@
-# List of breaking changes
+# Changelog
 
 ## v0.1.1
 + **Resolving and Reloading** v0.1.1 introduces capabilities to reload and
