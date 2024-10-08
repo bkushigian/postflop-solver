@@ -60,9 +60,19 @@
     the rebuilt game. This process overwrites the input game, so that memory
     will be released.
 
-  - **Began replacing panics with Result<(), String>**: we should be able to
++ **Replacing panics with Result<(), String>**: we should be able to
     handle many instances of errors gracefully, so we've begun replacing
     `panic!()`s with `Result<>`s
+
++ **Helper Functions**: We've added several helper functions, including
+
+  - `PostFlopNode::action_index(action: Action) -> Option<usize>`: return the index into
+    this node of the specified action if it exists, and `None` otherwise.
+
+  - `PostFlopNode::compute_history_recursive(&self, &PostFlopGame) -> Option<Vec<usize>>`:
+    Recursively compute the history of the given node as a path of action indices. 
+
+  - `PostFlopNode::actions() -> Vec<Action>`: compute the available actions of a given node
 
 
 ## 2023-10-01
