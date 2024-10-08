@@ -268,7 +268,6 @@ mod tests {
     use crate::action_tree::*;
     use crate::card::*;
     use crate::range::*;
-    use crate::solver::*;
     use crate::utility::*;
 
     #[test]
