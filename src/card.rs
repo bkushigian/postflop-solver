@@ -20,6 +20,11 @@ pub type Card = u8;
 /// Constant representing that the card is not yet dealt.
 pub const NOT_DEALT: Card = Card::MAX;
 
+/// for serde default
+fn not_dealt() -> Card {
+    NOT_DEALT
+}
+
 /// A struct containing the card configuration.
 ///
 /// # Examples
@@ -46,9 +51,11 @@ pub struct CardConfig {
     pub flop: [Card; 3],
 
     /// Turn card: must be in range [`0`, `52`) or `NOT_DEALT`.
+    #[serde(default = "not_dealt")]
     pub turn: Card,
 
     /// River card: must be in range [`0`, `52`) or `NOT_DEALT`.
+    #[serde(default = "not_dealt")]
     pub river: Card,
 }
 
@@ -452,4 +459,7 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_serialize_deserialize_card_config() {}
 }
