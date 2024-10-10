@@ -981,10 +981,8 @@ impl<'de> Deserialize<'de> for Range {
             where
                 E: de::Error,
             {
-                Range::from_str(v).or_else(|m| {
-                    Err(de::Error::custom(
-                        format!("Invalid range string \"{}\"\n\n{}", v, m).as_str(),
-                    ))
+                Range::from_str(v).map_err(|m| {
+                    de::Error::custom(format!("Invalid range string \"{}\"\n\n{}", v, m).as_str())
                 })
             }
         }
