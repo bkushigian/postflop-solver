@@ -291,14 +291,14 @@ impl CardConfig {
                 cards.len()
             ))
         } else {
-            let turn = cards.get(3).unwrap_or_else(|| &NOT_DEALT);
-            let river = cards.get(4).unwrap_or_else(|| &NOT_DEALT);
+            let turn = cards.get(3).unwrap_or(&NOT_DEALT);
+            let river = cards.get(4).unwrap_or(&NOT_DEALT);
             let mut flop: [Card; 3] = [cards[0], cards[1], cards[2]];
             flop.sort_by(|a, b| b.partial_cmp(a).unwrap());
 
             Ok(Self {
-                range: self.range.clone(),
-                flop: flop,
+                range: self.range,
+                flop,
                 turn: *turn,
                 river: *river,
             })
