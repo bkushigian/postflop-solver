@@ -54,7 +54,7 @@ pub struct BetSizeOptions {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct DonkSizeOptions {
-    donk: Vec<BetSize>,
+    donks: Vec<BetSize>,
 }
 
 /// Bet size specification.
@@ -168,7 +168,7 @@ impl TryFrom<(&str, &str)> for BetSizeOptions {
 
 impl DonkSizeOptions {
     pub fn donks(&self) -> &[BetSize] {
-        &self.donk
+        &self.donks
     }
 }
 
@@ -194,7 +194,7 @@ impl TryFrom<&str> for DonkSizeOptions {
         donk.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
 
         Ok(DonkSizeOptions {
-            donk: BetSizeOptions::as_valid_bets(donk)?,
+            donks: BetSizeOptions::as_valid_bets(donk)?,
         })
     }
 }
@@ -380,13 +380,13 @@ mod tests {
             (
                 "40%, 70%",
                 DonkSizeOptions {
-                    donk: vec![PotRelative(0.4), PotRelative(0.7)],
+                    donks: vec![PotRelative(0.4), PotRelative(0.7)],
                 },
             ),
             (
                 "50c, e, a,",
                 DonkSizeOptions {
-                    donk: vec![Additive(50, 0), Geometric(0, f64::INFINITY), AllIn],
+                    donks: vec![Additive(50, 0), Geometric(0, f64::INFINITY), AllIn],
                 },
             ),
         ];
