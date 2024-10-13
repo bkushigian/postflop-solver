@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use postflop_solver::{cards_from_str, solve, ActionTree, CardConfig, PostFlopGame, TreeConfig};
@@ -33,7 +33,7 @@ struct Args {
     exploitability: f32,
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     let args = Args::parse();
 
     let config = std::fs::read_to_string(args.config).expect("Unable to read in config");
@@ -63,27 +63,8 @@ fn main() {
 
     // Create output directory if needed. Check if ".pfs" files exist, and if so abort
     let dir = PathBuf::from(args.dir);
-    if dir.exists() {
-        if !dir.is_dir() {
-            panic!(
-                "output directory {} exists but is not a directory",
-                dir.to_str().unwrap()
-            );
-        }
-        for board in &boards {
-            // create board file name
-            let board_file_name = board
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .collect::<String>();
-            let board_path = dir.join(board_file_name).with_extension("pfs");
-            if board_path.exists() {
-                panic!("board path {} already exists", board_path.to_string_lossy());
-            }
-        }
-    } else {
-        std::fs::create_dir_all(&dir).unwrap();
-    }
+    setup_output_directory(&dir)?;
+    ensure_no_conflicts_in_output_dir(&dir, &boards)?;
 
     for board in &boards {
         let cards =
@@ -101,4 +82,37 @@ fn main() {
         let target_exploitability = game.tree_config().starting_pot as f32 * args.exploitability;
         solve(&mut game, max_num_iterations, target_exploitability, true);
     }
+    Ok(())
+}
+
+fn setup_output_directory(dir: &Path) -> Result<(), String> {
+    if dir.exists() {
+        if !dir.is_dir() {
+            panic!(
+                "output directory {} exists but is not a directory",
+                dir.to_str().unwrap()
+            );
+        }
+        Ok(())
+    } else {
+        std::fs::create_dir_all(&dir).map_err(|_| "Couldn't create dir".to_string())
+    }
+}
+
+fn ensure_no_conflicts_in_output_dir(dir: &Path, boards: &[String]) -> Result<(), String> {
+    for board in boards {
+        // create board file name
+        let board_file_name = board
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+        let board_path = dir.join(board_file_name).with_extension("pfs");
+        if board_path.exists() {
+            return Err(format!(
+                "board path {} already exists",
+                board_path.to_string_lossy()
+            ));
+        }
+    }
+    Ok(())
 }
