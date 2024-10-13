@@ -599,7 +599,7 @@ impl ActionTree {
             actions.push(Action::Check);
 
             // donk bet
-            for &donk_size in &donk_options.as_ref().unwrap().donk {
+            for &donk_size in donk_options.as_ref().unwrap().donks() {
                 match donk_size {
                     BetSize::PotRelative(ratio) => {
                         let amount = (pot as f64 * ratio).round() as i32;

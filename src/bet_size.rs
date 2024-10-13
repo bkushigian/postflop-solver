@@ -54,7 +54,7 @@ pub struct BetSizeOptions {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct DonkSizeOptions {
-    pub donk: Vec<BetSize>,
+    donk: Vec<BetSize>,
 }
 
 /// Bet size specification.
@@ -163,6 +163,12 @@ impl TryFrom<(&str, &str)> for BetSizeOptions {
         raise.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
 
         Self::try_from_sizes(bet, raise)
+    }
+}
+
+impl DonkSizeOptions {
+    pub fn donks(&self) -> &[BetSize] {
+        &self.donk
     }
 }
 
