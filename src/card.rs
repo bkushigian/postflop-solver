@@ -255,6 +255,56 @@ impl CardConfig {
         ret
     }
 
+    /// Return the current card configuration with new board cards.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use postflop_solver::*;
+    ///
+    /// let oop_range = "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s";
+    /// let ip_range = "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+";
+    /// let ranges = [oop_range.parse().unwrap(), ip_range.parse().unwrap()];
+    ///
+    /// let card_config = CardConfig {
+    ///     range: ranges,
+    ///     flop: flop_from_str("Td9d6h").unwrap(),
+    ///     turn: card_from_str("Qc").unwrap(),
+    ///     river: NOT_DEALT,
+    /// };
+    ///
+    /// let cards = cards_from_str("Th9d3c4h").unwrap();
+    /// let card_config2 = card_config.with_cards(cards).unwrap();
+    /// assert_eq!(card_config2.range, ranges);
+    /// assert_eq!(card_config2.flop, [34, 29, 4]);
+    /// assert_eq!(card_config2.turn, 10);
+    /// assert_eq!(card_config2.river, NOT_DEALT);
+    /// ```
+    pub fn with_cards(&self, cards: Vec<Card>) -> Result<CardConfig, String> {
+        let num_cards =
+            3 + ((self.turn != NOT_DEALT) as usize) + ((self.river != NOT_DEALT) as usize);
+        if cards.len() != num_cards {
+            Err(format!(
+                "Current CardConfig has {} cards but supplied cards list {:?} has {} cards",
+                num_cards,
+                cards,
+                cards.len()
+            ))
+        } else {
+            let turn = cards.get(3).unwrap_or_else(|| &NOT_DEALT);
+            let river = cards.get(4).unwrap_or_else(|| &NOT_DEALT);
+            let mut flop: [Card; 3] = [cards[0], cards[1], cards[2]];
+            flop.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+            Ok(Self {
+                range: self.range.clone(),
+                flop: flop,
+                turn: *turn,
+                river: *river,
+            })
+        }
+    }
+
     pub(crate) fn isomorphism(&self, private_cards: &[Vec<(Card, Card)>; 2]) -> IsomorphismData {
         let mut suit_isomorphism = [0; 4];
         let mut next_index = 1;

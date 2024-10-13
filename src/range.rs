@@ -304,6 +304,29 @@ pub fn card_from_str(s: &str) -> Result<Card, String> {
     Ok(result)
 }
 
+/// Attempts to convert an optionally space-separated string into an unsorted
+/// card vec.
+///
+/// # Examples
+/// ```
+/// use postflop_solver::cards_from_str;
+///
+/// assert_eq!(cards_from_str("2c3d4h"), Ok(vec![0, 5, 10]));
+/// assert_eq!(cards_from_str("As Ah Ks"), Ok(vec![51, 50, 47]));
+/// ```
+pub fn cards_from_str(s: &str) -> Result<Vec<Card>, String> {
+    let chars = s.chars();
+    let mut result = vec![];
+
+    let mut chars = chars.peekable();
+    while chars.peek().is_some() {
+        result.push(card_from_chars(
+            &mut chars.by_ref().skip_while(|c| c.is_whitespace()),
+        )?);
+    }
+    Ok(result)
+}
+
 /// Attempts to convert an optionally space-separated string into a sorted flop array.
 ///
 /// # Examples
