@@ -329,15 +329,15 @@ mod tests {
             assert_eq!(bet_size_from_str(s), Ok(expected));
         }
 
-        // let error_tests = [
-        //     "", "0", "1.23", "%", "+42%", "-30%", "x", "0x", "1x", "c", "12.3c", "10c10", "42cr",
-        //     "c3r", "0c0r", "123c101r", "1c2r3", "12c3.4r", "0e", "2.7e", "101e", "3e7", "E%",
-        //     "1e2e3", "bet", "1a", "a1",
-        // ];
+        let error_tests = [
+            "", "0", "1.23", "%", "+42%", "-30%", "x", "0x", "1x", "c", "12.3c", "10c10", "42cr",
+            "c3r", "0c0r", "123c101r", "1c2r3", "12c3.4r", "0e", "2.7e", "101e", "3e7", "E%",
+            "1e2e3", "bet", "1a", "a1",
+        ];
 
-        // for s in error_tests {
-        //     assert!(bet_size_from_str(s, true).is_err());
-        // }
+        for s in error_tests {
+            assert!(bet_size_from_str(s).is_err());
+        }
     }
 
     #[test]
