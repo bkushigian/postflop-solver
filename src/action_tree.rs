@@ -631,7 +631,7 @@ impl ActionTree {
             actions.push(Action::Check);
 
             // bet
-            for &bet_size in &bet_options[player as usize].bet {
+            for &bet_size in bet_options[player as usize].bets() {
                 match bet_size {
                     BetSize::PotRelative(ratio) => {
                         let amount = (pot as f64 * ratio).round() as i32;
@@ -664,7 +664,7 @@ impl ActionTree {
 
             if !info.allin_flag {
                 // raise
-                for &bet_size in &bet_options[player as usize].raise {
+                for &bet_size in bet_options[player as usize].raises() {
                     match bet_size {
                         BetSize::PotRelative(ratio) => {
                             let amount = prev_amount + (pot as f64 * ratio).round() as i32;
