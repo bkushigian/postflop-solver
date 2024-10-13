@@ -158,8 +158,6 @@ impl TryFrom<(&str, &str)> for BetSizeOptions {
         for raise_size in raise_sizes {
             raise.push(bet_size_from_str(raise_size)?);
         }
-        // Check for ill-formed bet sizes. This includes
-        // - bet sizes with relative amounts (e.g., "3x")
 
         bet.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
         raise.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
