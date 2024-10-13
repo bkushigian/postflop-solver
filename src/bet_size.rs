@@ -42,10 +42,10 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct BetSizeOptions {
     /// Bet size options for first bet.
-    bet: Vec<BetSize>,
+    bets: Vec<BetSize>,
 
     /// Bet size options for raise.
-    raise: Vec<BetSize>,
+    raises: Vec<BetSize>,
 }
 
 /// Bet size options for the donk bets.
@@ -91,8 +91,8 @@ impl BetSizeOptions {
     /// - `bets` contains an `BetSize::Additive(_, cap)` with non-zero `cap`
     pub fn try_from_sizes(bets: Vec<BetSize>, raises: Vec<BetSize>) -> Result<Self, String> {
         Ok(BetSizeOptions {
-            bet: BetSizeOptions::as_valid_bets(bets)?,
-            raise: raises,
+            bets: BetSizeOptions::as_valid_bets(bets)?,
+            raises,
         })
     }
 
@@ -122,11 +122,11 @@ impl BetSizeOptions {
     }
 
     pub fn bets(&self) -> &[BetSize] {
-        &self.bet
+        &self.bets
     }
 
     pub fn raises(&self) -> &[BetSize] {
-        &self.raise
+        &self.raises
     }
 }
 
