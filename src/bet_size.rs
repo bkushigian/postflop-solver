@@ -1,6 +1,6 @@
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Bet size options for the first bets and raises.
 ///
@@ -42,9 +42,13 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct BetSizeOptions {
     /// Bet size options for first bet.
+    #[serde(deserialize_with = "deserialize_bet_sizes", default)]
+    #[serde(serialize_with = "serialize_bet_sizes")]
     bets: Vec<BetSize>,
 
     /// Bet size options for raise.
+    #[serde(deserialize_with = "deserialize_bet_sizes", default)]
+    #[serde(serialize_with = "serialize_bet_sizes")]
     raises: Vec<BetSize>,
 }
 
@@ -54,12 +58,15 @@ pub struct BetSizeOptions {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct DonkSizeOptions {
+    #[serde(deserialize_with = "deserialize_bet_sizes", default)]
+    #[serde(serialize_with = "serialize_bet_sizes")]
     donks: Vec<BetSize>,
 }
 
 /// Bet size specification.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
+#[serde(try_from = "&str")]
 pub enum BetSize {
     /// Bet size relative to the current pot size.
     PotRelative(f64),
@@ -130,6 +137,14 @@ impl BetSizeOptions {
     }
 }
 
+impl TryFrom<&str> for BetSize {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        bet_size_from_str(s)
+    }
+}
+
 impl TryFrom<(&str, &str)> for BetSizeOptions {
     type Error = String;
 
@@ -137,32 +152,7 @@ impl TryFrom<(&str, &str)> for BetSizeOptions {
     ///
     /// See the [`BetSizeOptions`] struct for the description and examples.
     fn try_from((bet_str, raise_str): (&str, &str)) -> Result<Self, Self::Error> {
-        let mut bet_sizes = bet_str.split(',').map(str::trim).collect::<Vec<_>>();
-        let mut raise_sizes = raise_str.split(',').map(str::trim).collect::<Vec<_>>();
-
-        if bet_sizes.last().unwrap().is_empty() {
-            bet_sizes.pop();
-        }
-
-        if raise_sizes.last().unwrap().is_empty() {
-            raise_sizes.pop();
-        }
-
-        let mut bet = Vec::new();
-        let mut raise = Vec::new();
-
-        for bet_size in bet_sizes {
-            bet.push(bet_size_from_str(bet_size)?);
-        }
-
-        for raise_size in raise_sizes {
-            raise.push(bet_size_from_str(raise_size)?);
-        }
-
-        bet.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
-        raise.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
-
-        Self::try_from_sizes(bet, raise)
+        Self::try_from_sizes(bet_sizes_from_str(bet_str)?, bet_sizes_from_str(raise_str)?)
     }
 }
 
@@ -179,23 +169,39 @@ impl TryFrom<&str> for DonkSizeOptions {
     ///
     /// See the [`BetSizeOptions`] struct for the description and examples.
     fn try_from(donk_str: &str) -> Result<Self, Self::Error> {
-        let mut donk_sizes = donk_str.split(',').map(str::trim).collect::<Vec<_>>();
+        let donks = bet_sizes_from_str(donk_str)?;
+        let donks = BetSizeOptions::as_valid_bets(donks)?;
+        Ok(DonkSizeOptions { donks })
+    }
+}
 
-        if donk_sizes.last().unwrap().is_empty() {
-            donk_sizes.pop();
+impl From<BetSize> for String {
+    fn from(bet_size: BetSize) -> Self {
+        match bet_size {
+            BetSize::PotRelative(x) => format!("{}%", x),
+            BetSize::PrevBetRelative(x) => format!("{}x", x),
+            BetSize::Additive(c, r) => {
+                if r != 0 {
+                    format!("{}c{}r", c, r)
+                } else {
+                    format!("{}c", c)
+                }
+            }
+            BetSize::Geometric(n, r) => {
+                if n == 0 {
+                    if r == f64::INFINITY {
+                        "e".to_string()
+                    } else {
+                        format!("e{}", r * 100.0)
+                    }
+                } else if r == f64::INFINITY {
+                    format!("{}e", n)
+                } else {
+                    format!("{}e{}", n, r)
+                }
+            }
+            BetSize::AllIn => "a".to_string(),
         }
-
-        let mut donk = Vec::new();
-
-        for donk_size in donk_sizes {
-            donk.push(bet_size_from_str(donk_size)?);
-        }
-
-        donk.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
-
-        Ok(DonkSizeOptions {
-            donks: BetSizeOptions::as_valid_bets(donk)?,
-        })
     }
 }
 
@@ -205,6 +211,31 @@ fn parse_float(s: &str) -> Option<f64> {
     } else {
         s.parse::<f64>().ok()
     }
+}
+
+fn bet_sizes_from_str(bets_str: &str) -> Result<Vec<BetSize>, String> {
+    let mut bet_sizes = bets_str.split(',').map(str::trim).collect::<Vec<_>>();
+
+    if bet_sizes.last().unwrap().is_empty() {
+        bet_sizes.pop();
+    }
+
+    let mut bets = Vec::new();
+
+    for bet_size in bet_sizes {
+        bets.push(bet_size_from_str(bet_size)?);
+    }
+
+    bets.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
+
+    Ok(bets)
+}
+
+fn deserialize_bet_sizes<'de, D>(deserializer: D) -> Result<Vec<BetSize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<BetSize>::deserialize(deserializer)
 }
 
 fn bet_size_from_str(s: &str) -> Result<BetSize, String> {
@@ -297,6 +328,23 @@ fn bet_size_from_str(s: &str) -> Result<BetSize, String> {
         // Parse error
         Err(err_msg)
     }
+}
+
+pub fn bet_size_to_string(bs: &BetSize) -> String {
+    String::from(*bs)
+}
+
+pub fn serialize_bet_sizes<S>(bs: &[BetSize], s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(
+        bs.iter()
+            .map(|b| String::from(*b))
+            .collect::<Vec<String>>()
+            .join(",")
+            .as_str(),
+    )
 }
 
 #[cfg(test)]
