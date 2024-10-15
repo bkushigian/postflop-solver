@@ -1,6 +1,6 @@
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 /// Bet size options for the first bets and raises.
 ///
@@ -178,7 +178,7 @@ impl TryFrom<&str> for DonkSizeOptions {
 impl From<BetSize> for String {
     fn from(bet_size: BetSize) -> Self {
         match bet_size {
-            BetSize::PotRelative(x) => format!("{}%", x),
+            BetSize::PotRelative(x) => format!("{}%", 100.0 * x),
             BetSize::PrevBetRelative(x) => format!("{}x", x),
             BetSize::Additive(c, r) => {
                 if r != 0 {
@@ -235,7 +235,9 @@ fn deserialize_bet_sizes<'de, D>(deserializer: D) -> Result<Vec<BetSize>, D::Err
 where
     D: Deserializer<'de>,
 {
-    Vec::<BetSize>::deserialize(deserializer)
+    let s = String::deserialize(deserializer)?;
+    let bet_sizes = bet_sizes_from_str(&s);
+    bet_sizes.map_err(de::Error::custom)
 }
 
 fn bet_size_from_str(s: &str) -> Result<BetSize, String> {
