@@ -1,7 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    process::exit,
+};
 
 use clap::Parser;
-use postflop_solver::{cards_from_str, solve, ActionTree, CardConfig, PostFlopGame, TreeConfig};
+use postflop_solver::{
+    cards_from_str, deserialize_configs_from_file, save_data_to_file, solve, ActionTree,
+    BoardState, PostFlopGame,
+};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -11,13 +17,8 @@ struct Args {
     #[arg(required = true)]
     config: String,
 
-    /// Boards to run on
-    #[arg(short, long)]
-    boards: Option<Vec<String>>,
-
-    /// File with boards to run on
-    #[arg(short, long)]
-    boards_file: Option<String>,
+    #[clap(flatten)]
+    boards: Boards,
 
     /// Directory to output solves to
     #[arg(short, long, default_value = ".")]
@@ -27,21 +28,50 @@ struct Args {
     #[arg(short = 'n', long, default_value = "1000")]
     max_iterations: u32,
 
-    /// Default exploitability as ratio of pot. Defaults to 0.2 (20% of pot),
+    /// Default exploitability as ratio of pot. Defaults to 0.02 (2% of pot),
     /// but for accurate solves we recommend choosing a lower value.
-    #[arg(short = 'e', long, default_value = "0.2")]
+    #[arg(short = 'e', long, default_value = "0.02")]
     exploitability: f32,
+
+    /// Overwrite existing sims if a saved sim with the same name exists. By
+    /// default these sims are skipped.
+    #[arg(long, default_value = "false")]
+    overwrite: bool,
+
+    /// Halt the batch solve when encountering a sim with the same name. By
+    /// default these sims are skipped.
+    #[arg(long, default_value = "false")]
+    halt_on_existing: bool,
+
+    /// OOP's range (overwrite the range in the config)
+    #[arg(long)]
+    oop_range: Option<String>,
+
+    /// IP's range (overwrites the range in the config)
+    #[arg(long)]
+    ip_range: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(required = true, multiple = false)]
+struct Boards {
+    /// Path to a file containing a list of boards
+    #[clap(long)]
+    boards_file: Option<String>,
+
+    /// Specify the boards on command line
+    #[clap(long, num_args=1..)]
+    boards: Option<Vec<String>>,
 }
 
 fn main() -> Result<(), String> {
     let args = Args::parse();
 
-    let config = std::fs::read_to_string(args.config).expect("Unable to read in config");
-
-    let boards = if let Some(boards) = args.boards {
+    let boards = if let Some(boards) = args.boards.boards {
         boards
     } else {
         let boards_files = args
+            .boards
             .boards_file
             .expect("Must specify boards or boards_file");
         let boards_contents =
@@ -51,22 +81,46 @@ fn main() -> Result<(), String> {
             .map(|s| s.to_string())
             .collect::<Vec<String>>()
     };
-    let configs_json: serde_json::Value =
-        serde_json::from_str(&config).expect("Unable to parse config");
-    let configs_map = configs_json.as_object().expect("Expected a json object");
+    let (card_config, tree_config) =
+        deserialize_configs_from_file(&args.config).expect("Couldn't deserialize config");
 
-    let card_config = configs_map.get("card_config").unwrap();
-    let card_config: CardConfig = serde_json::from_value(card_config.clone()).unwrap();
-
-    let tree_config = configs_map.get("tree_config").unwrap();
-    let tree_config: TreeConfig = serde_json::from_value(tree_config.clone()).unwrap();
+    let max_num_iterations = args.max_iterations;
+    let target_exploitability = tree_config.starting_pot as f32 * args.exploitability;
+    println!("Starting pot: {}", tree_config.starting_pot);
+    println!("Effective stacks: {}", tree_config.effective_stack);
+    println!(
+        "Exploitable for {}% of staring pot ({} chips)",
+        args.exploitability * 100.0,
+        target_exploitability
+    );
 
     // Create output directory if needed. Check if ".pfs" files exist, and if so abort
     let dir = PathBuf::from(args.dir);
     setup_output_directory(&dir)?;
-    ensure_no_conflicts_in_output_dir(&dir, &boards)?;
 
-    for board in &boards {
+    let existing_board_files = boards
+        .iter()
+        .map(|b| dir.join(format!("{}.pfs", b.replace(" ", ""))))
+        .filter(|b| b.exists())
+        .collect::<Vec<PathBuf>>();
+
+    // Check if boards exist
+    if args.halt_on_existing && !existing_board_files.is_empty() {
+        println!("Halting. Board files already exist: ");
+        existing_board_files
+            .iter()
+            .for_each(|b| println!("- {}", b.display()));
+        exit(1);
+    }
+
+    let num_boards = boards.len();
+    for (i, board) in boards.iter().enumerate() {
+        println!("Solving board {}/{}: {}", i + 1, num_boards, board);
+        let path = dir.join(format!("{}.pfs", board.replace(" ", "")));
+        if !args.overwrite && path.exists() {
+            println!("Sim {} already exists...continuing...", path.display());
+            continue;
+        }
         let cards =
             cards_from_str(&board).expect(format!("Couldn't parse board {}", board).as_str());
 
@@ -77,10 +131,15 @@ fn main() -> Result<(), String> {
         .unwrap();
 
         game.allocate_memory(false);
-
-        let max_num_iterations = args.max_iterations;
-        let target_exploitability = game.tree_config().starting_pot as f32 * args.exploitability;
         solve(&mut game, max_num_iterations, target_exploitability, true);
+        game.set_target_storage_mode(BoardState::Turn).unwrap();
+        if path.exists() {
+            println!("Overwriting save at {}", path.display());
+        }
+        match save_data_to_file(&game, "batch solve", &path, None) {
+            Ok(_) => println!("Saved to {}", path.display()),
+            Err(_) => panic!("Unable to save to {:?}", &path),
+        }
     }
     Ok(())
 }
@@ -97,22 +156,4 @@ fn setup_output_directory(dir: &Path) -> Result<(), String> {
     } else {
         std::fs::create_dir_all(&dir).map_err(|_| "Couldn't create dir".to_string())
     }
-}
-
-fn ensure_no_conflicts_in_output_dir(dir: &Path, boards: &[String]) -> Result<(), String> {
-    for board in boards {
-        // create board file name
-        let board_file_name = board
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect::<String>();
-        let board_path = dir.join(board_file_name).with_extension("pfs");
-        if board_path.exists() {
-            return Err(format!(
-                "board path {} already exists",
-                board_path.to_string_lossy()
-            ));
-        }
-    }
-    Ok(())
 }
