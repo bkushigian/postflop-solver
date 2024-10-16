@@ -6,7 +6,7 @@ use std::{
 use clap::Parser;
 use postflop_solver::{
     cards_from_str, deserialize_configs_from_file, save_data_to_file, solve, ActionTree,
-    BoardState, PostFlopGame,
+    BoardState, PostFlopGame, Range,
 };
 
 /// Simple program to greet a person
@@ -81,8 +81,28 @@ fn main() -> Result<(), String> {
             .map(|s| s.to_string())
             .collect::<Vec<String>>()
     };
-    let (card_config, tree_config) =
+    let (mut card_config, tree_config) =
         deserialize_configs_from_file(&args.config).expect("Couldn't deserialize config");
+
+    // Update card_config and tree_config with command-line specified data
+    if let Some(range_string) = args.oop_range {
+        let range_result = range_string.parse::<Range>();
+        if let Ok(range) = range_result {
+            card_config.range[0] = range;
+        } else {
+            println!("Couldn't parse OOP Range \"{}\"", range_string);
+            println!("{}", range_result.unwrap_err());
+        }
+    }
+    if let Some(range_string) = args.ip_range {
+        let range_result = range_string.parse::<Range>();
+        if let Ok(range) = range_result {
+            card_config.range[1] = range;
+        } else {
+            println!("Couldn't parse IP Range \"{}\"", range_string);
+            println!("{}", range_result.unwrap_err());
+        }
+    }
 
     let max_num_iterations = args.max_iterations;
     let target_exploitability = tree_config.starting_pot as f32 * args.exploitability;
