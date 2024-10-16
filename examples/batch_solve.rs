@@ -129,7 +129,10 @@ fn main() -> Result<(), String> {
             ActionTree::new(tree_config.clone()).unwrap(),
         )
         .unwrap();
-        game.memory_usage();
+        let mem_usage = game.memory_usage();
+        let mem_usage_mb = (mem_usage.0 as f64) / (1024 * 1024) as f64;
+
+        println!("Memory usage: {:5.2} MB", mem_usage_mb);
 
         game.allocate_memory(false);
         solve(&mut game, max_num_iterations, target_exploitability, true);
