@@ -867,3 +867,28 @@ pub fn deserialize_configs_from_file(path: &str) -> Result<(CardConfig, TreeConf
         std::fs::read_to_string(path).map_err(|e| format!("Couldn't read path: {}: {}", path, e));
     deserialize_configs_from_str(&contents?)
 }
+
+pub fn configs_to_json(
+    card_config: &CardConfig,
+    tree_config: &TreeConfig,
+) -> Result<serde_json::Value, String> {
+    let tree_config_result = serde_json::to_value(tree_config);
+    let tree_config = tree_config_result.map_err(|e| {
+        format!(
+            "Couldn't serialize TreeConfig {:?} to JSON:\n{}",
+            tree_config, e
+        )
+    })?;
+    let card_config_result = serde_json::to_value(card_config);
+    let card_config = card_config_result.map_err(|e| {
+        format!(
+            "Couldn't serialize CardConfig {:?} to JSON:\n{}",
+            card_config, e
+        )
+    })?;
+    let mut map = serde_json::Map::new();
+    map.insert("tree_config".to_string(), tree_config.clone());
+    map.insert("card_config".to_string(), card_config.clone());
+    let json_config = serde_json::Value::Object(map);
+    Ok(json_config)
+}

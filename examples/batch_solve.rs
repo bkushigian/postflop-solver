@@ -5,8 +5,8 @@ use std::{
 
 use clap::Parser;
 use postflop_solver::{
-    cards_from_str, deserialize_configs_from_file, save_data_to_file, solve, ActionTree,
-    BoardState, PostFlopGame, Range,
+    cards_from_str, configs_to_json, deserialize_configs_from_file, save_data_to_file, solve,
+    ActionTree, BoardState, PostFlopGame, Range,
 };
 
 /// Simple program to greet a person
@@ -118,11 +118,36 @@ fn main() -> Result<(), String> {
     let dir = PathBuf::from(args.dir);
     setup_output_directory(&dir)?;
 
+    // Save config to output directory
+    let config_json_path = dir.join("config.json");
+    if config_json_path.exists() {
+        println!(
+            "Config already exists at path {}. Exiting.",
+            config_json_path.display()
+        );
+        exit(1);
+    }
+    let boards_file_out_path = dir.join("boards.txt");
+    if boards_file_out_path.exists() {
+        println!(
+            "Boards file exists at path {}. Exiting.",
+            boards_file_out_path.display()
+        );
+        exit(1);
+    }
+
+    let config_json = configs_to_json(&card_config, &tree_config)?;
+    let config_contents = serde_json::to_string_pretty(&config_json).map_err(|e| e.to_string())?;
+    std::fs::write(&config_json_path, config_contents).map_err(|e| e.to_string())?;
+
     let existing_board_files = boards
         .iter()
         .map(|b| dir.join(format!("{}.pfs", b.replace(" ", ""))))
         .filter(|b| b.exists())
         .collect::<Vec<PathBuf>>();
+
+    let boards_file_contents = boards.join("\n");
+    std::fs::write(&boards_file_out_path, &boards_file_contents).map_err(|e| e.to_string())?;
 
     // Check if boards exist
     if args.halt_on_existing && !existing_board_files.is_empty() {

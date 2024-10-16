@@ -1465,27 +1465,7 @@ impl PostFlopGame {
     /// future versions. It returns a JSON object with a game's `TreeConfig` and
     /// `CardConfig`.
     pub fn configs_as_json(&self) -> Result<serde_json::Value, String> {
-        let tree_config = serde_json::to_value(self.tree_config());
-        let tree_config = tree_config.map_err(|e| {
-            format!(
-                "Couldn't serialize TreeConfig {:?} to JSON:\n{}",
-                self.tree_config(),
-                e
-            )
-        })?;
-        let card_config = serde_json::to_value(self.card_config());
-        let card_config = card_config.map_err(|e| {
-            format!(
-                "Couldn't serialize CardConfig {:?} to JSON:\n{}",
-                self.card_config(),
-                e
-            )
-        })?;
-        let mut map = serde_json::Map::new();
-        map.insert("tree_config".to_string(), tree_config);
-        map.insert("card_config".to_string(), card_config);
-        let json_config = serde_json::Value::Object(map);
-        Ok(json_config)
+        configs_to_json(self.card_config(), self.tree_config())
     }
 
     pub fn game_from_configs_json(
