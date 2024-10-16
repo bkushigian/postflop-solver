@@ -4,7 +4,9 @@ use super::*;
 use crate::range::*;
 use crate::solver::*;
 use crate::utility::*;
+use crate::BetSizeOptions;
 use crate::BunchingData;
+use crate::DonkSizeOptions;
 
 #[test]
 fn all_check_all_range() {
@@ -1254,4 +1256,116 @@ fn solve_pio_preset_raked() {
 #[test]
 fn serialize_config() {
     let resources_dir = Path::new("resources");
+    let config_path = resources_dir.join("config.json");
+    let json_contents =
+        std::fs::read_to_string(&config_path).expect("Couldn't find config.json in resources");
+
+    let config = serde_json::from_str(&json_contents);
+    assert!(config.is_ok());
+    let config = config.unwrap();
+    let game = PostFlopGame::game_from_configs_json(&config);
+    assert!(game.is_ok());
+    let game = game.unwrap();
+
+    let card_config = game.card_config();
+    assert_eq!(card_config.flop, flop_from_str("6h9dTd").unwrap());
+    assert_eq!(card_config.turn, card_from_str("Qc").unwrap());
+    assert_eq!(card_config.river, NOT_DEALT);
+
+    let tree_config = game.tree_config();
+    assert_eq!(tree_config.initial_state, BoardState::Turn);
+    assert_eq!(tree_config.effective_stack, 900);
+    assert_eq!(tree_config.starting_pot, 200);
+
+    let sizes = BetSizeOptions::try_from(("60%,e,a", "2.5x")).unwrap();
+    assert_eq!(tree_config.flop_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.turn_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.river_bet_sizes, [sizes.clone(), sizes.clone()]);
+
+    let donks = DonkSizeOptions::try_from("50%").ok();
+    assert_eq!(tree_config.turn_donk_sizes, None);
+    assert_eq!(tree_config.river_donk_sizes, donks);
+
+    assert_eq!(tree_config.add_allin_threshold, 1.5);
+    assert_eq!(tree_config.force_allin_threshold, 0.15);
+    assert_eq!(tree_config.merging_threshold, 0.1);
+
+    assert_eq!(tree_config.rake_cap, 0.0);
+    assert_eq!(tree_config.rake_rate, 0.0);
+}
+
+#[test]
+fn deserialize_config_defaults() {
+    // This should deserialze
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+
+    let result = deserialize_configs_from_str(config_contents);
+    assert!(result.is_ok());
+    let (card_config, tree_config) = result.unwrap();
+
+    assert_eq!(card_config.flop, flop_from_str("6h9dTd").unwrap());
+    assert_eq!(card_config.turn, NOT_DEALT);
+    assert_eq!(card_config.river, NOT_DEALT);
+
+    assert_eq!(tree_config.initial_state, BoardState::Flop);
+    assert_eq!(tree_config.effective_stack, 500);
+    assert_eq!(tree_config.starting_pot, 10);
+
+    let sizes = BetSizeOptions::try_from(("", "")).unwrap();
+    assert_eq!(tree_config.flop_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.turn_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.river_bet_sizes, [sizes.clone(), sizes.clone()]);
+
+    assert_eq!(tree_config.turn_donk_sizes, None);
+    assert_eq!(tree_config.river_donk_sizes, None);
+
+    assert_eq!(tree_config.add_allin_threshold, 2.5);
+    assert_eq!(tree_config.force_allin_threshold, 0.2);
+    assert_eq!(tree_config.merging_threshold, 0.1);
+
+    assert_eq!(tree_config.rake_cap, 0.0);
+    assert_eq!(tree_config.rake_rate, 0.0);
+
+    // This should not deserialize:
+    let config_contents = "{}";
+    let result = deserialize_configs_from_str(config_contents);
+    assert!(result.is_err());
+
+    // This should not deserialize:
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        }
+    }";
+    let result = deserialize_configs_from_str(config_contents);
+    assert!(result.is_err(), "Configs require a tree_config");
+
+    // This should not deserialize:
+    let config_contents = "
+    {
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    let result = deserialize_configs_from_str(config_contents);
+    assert!(result.is_err(), "Configs require a card_config");
 }

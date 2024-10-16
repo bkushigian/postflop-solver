@@ -124,7 +124,7 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    let card = if s == NOT_DEALT_STR.to_string() {
+    let card = if s == *NOT_DEALT_STR {
         Ok(255)
     } else {
         card_from_str(&s)
