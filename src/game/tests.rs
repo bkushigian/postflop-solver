@@ -1341,8 +1341,7 @@ fn deserialize_config_defaults() {
 
     // This should not deserialize:
     let config_contents = "{}";
-    let result = deserialize_configs_from_str(config_contents);
-    assert!(result.is_err());
+    assert!(deserialize_configs_from_str(config_contents).is_err());
 
     // This should not deserialize:
     let config_contents = "
@@ -1355,8 +1354,7 @@ fn deserialize_config_defaults() {
             ]
         }
     }";
-    let result = deserialize_configs_from_str(config_contents);
-    assert!(result.is_err(), "Configs require a tree_config");
+    assert!(deserialize_configs_from_str(config_contents).is_err());
 
     // This should not deserialize:
     let config_contents = "
@@ -1366,6 +1364,94 @@ fn deserialize_config_defaults() {
             \"effective_stack\": 500
         }
     }";
-    let result = deserialize_configs_from_str(config_contents);
-    assert!(result.is_err(), "Configs require a card_config");
+    assert!(deserialize_configs_from_str(config_contents).is_err());
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without flops should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\"
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without ranges should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without precisely two ranges should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+        }
+    }";
+
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without effective_stack should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10
+        }
+    }";
+
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without starting_pot should not deserialize"
+    );
 }
