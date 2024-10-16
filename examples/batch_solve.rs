@@ -114,8 +114,9 @@ fn main() -> Result<(), String> {
     }
 
     let num_boards = boards.len();
+    println!("\nBeginning Solves\n----------------\n");
     for (i, board) in boards.iter().enumerate() {
-        println!("Solving board {}/{}: {}", i + 1, num_boards, board);
+        println!("\nSolving board {}/{}: {}", i + 1, num_boards, board);
         let path = dir.join(format!("{}.pfs", board.replace(" ", "")));
         if !args.overwrite && path.exists() {
             println!("Sim {} already exists...continuing...", path.display());
