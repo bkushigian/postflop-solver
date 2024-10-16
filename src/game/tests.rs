@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::*;
 use crate::range::*;
 use crate::solver::*;
@@ -1247,4 +1249,9 @@ fn solve_pio_preset_raked() {
     // verified by PioSOLVER Free (but not theoretically guaranteed to be the same)
     assert!((root_ev_oop - 95.57).abs() < 0.2);
     assert!((root_ev_ip - 66.98).abs() < 0.2);
+}
+
+#[test]
+fn serialize_config() {
+    let resources_dir = Path::new("resources");
 }

@@ -191,26 +191,6 @@ fn suit_to_char(suit: u8) -> Result<char, String> {
     }
 }
 
-/// Attempts to convert a card into a string.
-///
-/// # Examples
-/// ```
-/// use postflop_solver::card_to_string;
-///
-/// assert_eq!(card_to_string(0), Ok("2c".to_string()));
-/// assert_eq!(card_to_string(5), Ok("3d".to_string()));
-/// assert_eq!(card_to_string(10), Ok("4h".to_string()));
-/// assert_eq!(card_to_string(51), Ok("As".to_string()));
-/// assert!(card_to_string(52).is_err());
-/// ```
-#[inline]
-pub fn card_to_string(card: Card) -> Result<String, String> {
-    check_card(card)?;
-    let rank = card >> 2;
-    let suit = card & 3;
-    Ok(format!("{}{}", rank_to_char(rank)?, suit_to_char(suit)?))
-}
-
 /// Attempts to convert hole cards into a string.
 ///
 /// See [`Card`] for encoding of cards.

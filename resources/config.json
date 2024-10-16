@@ -1,16 +1,12 @@
 {
   "card_config": {
-    "flop": [
-      18,
-      29,
-      33
-    ],
+    "flop": "6h9dTd",
     "range": [
       "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
       "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+"
     ],
-    "river": 255,
-    "turn": 40
+    "river": "NOT_DEALT",
+    "turn": "Qc"
   },
   "tree_config": {
     "add_allin_threshold": 1.5,
