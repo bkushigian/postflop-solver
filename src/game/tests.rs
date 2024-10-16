@@ -1256,7 +1256,7 @@ fn solve_pio_preset_raked() {
 #[test]
 fn serialize_config() {
     let resources_dir = Path::new("resources");
-    let config_path = resources_dir.join("config.json");
+    let config_path = resources_dir.join("configs").join("turn_config.json");
     let json_contents =
         std::fs::read_to_string(&config_path).expect("Couldn't find config.json in resources");
 
