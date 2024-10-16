@@ -129,6 +129,7 @@ fn main() -> Result<(), String> {
             ActionTree::new(tree_config.clone()).unwrap(),
         )
         .unwrap();
+        game.memory_usage();
 
         game.allocate_memory(false);
         solve(&mut game, max_num_iterations, target_exploitability, true);
