@@ -167,8 +167,8 @@ fn main() -> Result<(), String> {
             println!("Sim {} already exists...continuing...", path.display());
             continue;
         }
-        let cards =
-            cards_from_str(&board).expect(format!("Couldn't parse board {}", board).as_str());
+        let cards = cards_from_str(board)
+            .unwrap_or_else(|e| panic!("Couldn't parse board {}: {}", board, e));
 
         let mut game = PostFlopGame::with_config(
             card_config.with_cards(cards).unwrap(),
@@ -204,6 +204,6 @@ fn setup_output_directory(dir: &Path) -> Result<(), String> {
         }
         Ok(())
     } else {
-        std::fs::create_dir_all(&dir).map_err(|_| "Couldn't create dir".to_string())
+        std::fs::create_dir_all(dir).map_err(|_| "Couldn't create dir".to_string())
     }
 }
