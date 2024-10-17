@@ -1,6 +1,8 @@
 use crate::interface::*;
 use crate::mutex_like::*;
 use crate::sliceop::*;
+use crate::CardConfig;
+use crate::TreeConfig;
 use std::mem::{self, MaybeUninit};
 use std::ptr;
 
@@ -831,4 +833,62 @@ pub(crate) fn apply_locking_strategy(dst: &mut [f32], locking: &[f32]) {
             }
         });
     }
+}
+
+pub fn deserialize_configs(
+    configs_json: &serde_json::Value,
+) -> Result<(CardConfig, TreeConfig), String> {
+    let map = configs_json.as_object().ok_or({
+        "Config JSON must be a JSON object with keys \"tree_config\" and \"card_config\""
+    })?;
+    let tree_config = map
+        .get("tree_config")
+        .ok_or("Config JSON must contain key \"tree_config\"")?;
+    let card_config = map
+        .get("card_config")
+        .ok_or("Config JSON must contain key \"card_config\"")?;
+    let tree_config: TreeConfig = serde_json::from_value(tree_config.clone())
+        .map_err(|e| format!("Error deserializing tree_config: {:?}", e))?;
+    let card_config: CardConfig = serde_json::from_value(card_config.clone())
+        .map_err(|e| format!("Error deserializing card_config: {:?}", e))?;
+    Ok((card_config, tree_config))
+}
+
+pub fn deserialize_configs_from_str(
+    config_json_contents: &str,
+) -> Result<(CardConfig, TreeConfig), String> {
+    let value: Result<serde_json::Value, _> = serde_json::from_str(config_json_contents);
+    let value = value.map_err(|e| format!("Couldn't deserialize json contents: {}", e))?;
+    deserialize_configs(&value)
+}
+
+pub fn deserialize_configs_from_file(path: &str) -> Result<(CardConfig, TreeConfig), String> {
+    let contents =
+        std::fs::read_to_string(path).map_err(|e| format!("Couldn't read path: {}: {}", path, e));
+    deserialize_configs_from_str(&contents?)
+}
+
+pub fn configs_to_json(
+    card_config: &CardConfig,
+    tree_config: &TreeConfig,
+) -> Result<serde_json::Value, String> {
+    let tree_config_result = serde_json::to_value(tree_config);
+    let tree_config = tree_config_result.map_err(|e| {
+        format!(
+            "Couldn't serialize TreeConfig {:?} to JSON:\n{}",
+            tree_config, e
+        )
+    })?;
+    let card_config_result = serde_json::to_value(card_config);
+    let card_config = card_config_result.map_err(|e| {
+        format!(
+            "Couldn't serialize CardConfig {:?} to JSON:\n{}",
+            card_config, e
+        )
+    })?;
+    let mut map = serde_json::Map::new();
+    map.insert("tree_config".to_string(), tree_config.clone());
+    map.insert("card_config".to_string(), card_config.clone());
+    let json_config = serde_json::Value::Object(map);
+    Ok(json_config)
 }
