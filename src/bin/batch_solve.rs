@@ -92,6 +92,7 @@ fn main() -> Result<(), String> {
         } else {
             println!("Couldn't parse OOP Range \"{}\"", range_string);
             println!("{}", range_result.unwrap_err());
+            exit(1);
         }
     }
     if let Some(range_string) = args.ip_range {
@@ -101,6 +102,7 @@ fn main() -> Result<(), String> {
         } else {
             println!("Couldn't parse IP Range \"{}\"", range_string);
             println!("{}", range_result.unwrap_err());
+            exit(1);
         }
     }
 
