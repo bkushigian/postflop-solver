@@ -14,11 +14,10 @@ use postflop_solver::{
 #[command(version, about, long_about = None)]
 struct Args {
     /// Path to configuration file
-    #[arg(required = true)]
-    config: String,
+    config: Option<String>,
 
     #[clap(flatten)]
-    boards: Boards,
+    boards: Option<Boards>,
 
     /// Directory to output solves to
     #[arg(short, long, default_value = ".")]
@@ -53,7 +52,7 @@ struct Args {
 }
 
 #[derive(Debug, clap::Args)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 struct Boards {
     /// Path to a file containing a list of boards
     #[clap(long)]
@@ -67,22 +66,92 @@ struct Boards {
 fn main() -> Result<(), String> {
     let args = Args::parse();
 
-    let boards = if let Some(boards) = args.boards.boards {
-        boards
+    // Create output directory if needed. Check if ".pfs" files exist, and if so abort
+    let dir = PathBuf::from(args.dir);
+    setup_output_directory(&dir)?;
+
+    // Set up output paths for both configs and boards. These will be stored in
+    // the solved database directory. We want to check to see if there will be a
+    // conflict:
+    let config_output_path = dir.join("config.json");
+    let boards_output_path = dir.join("boards.txt");
+
+    let config_path = if let Some(config) = args.config {
+        if config_output_path.exists() && !args.overwrite {
+            println!(
+                "Error: `--config {}` was specified but `{}` already exists!",
+                &config,
+                config_output_path.display()
+            );
+            exit(1);
+        }
+        PathBuf::from(config)
     } else {
-        let boards_files = args
-            .boards
-            .boards_file
-            .expect("Must specify boards or boards_file");
-        let boards_contents =
-            std::fs::read_to_string(boards_files).expect("Unable to read boards_file");
-        boards_contents
-            .lines()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>()
+        if config_output_path.exists() {
+            config_output_path.clone()
+        } else {
+            println!(
+                "No config specified, and `{}` doesn't exist!",
+                config_output_path.display()
+            );
+            exit(1);
+        }
     };
+
+    // Boards was specified from command line (either --boards or --boards-file)
+    let boards = if let Some(boards) = args.boards {
+        if let Some(boards) = boards.boards {
+            if boards_output_path.exists() && !args.overwrite {
+                println!(
+                    "Error: `--boards {}` was specified but `{}` already exists!",
+                    boards.join(" "),
+                    boards_output_path.display()
+                );
+                exit(1);
+            }
+            boards
+        } else if let Some(boards_path) = boards.boards_file {
+            if boards_output_path.exists() {
+                println!(
+                    "Error: `--boards-file {}` was specified but `{}` already exists!",
+                    &boards_path,
+                    boards_output_path.display()
+                );
+                exit(1);
+            }
+            std::fs::read_to_string(boards_path)
+                .expect("Unable to read boards_file")
+                .lines()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+        } else {
+            panic!("Unreachable!")
+        }
+    } else
+    // Otherwise, nothing specified on command line, so check if `boards.txt` exists
+    {
+        let boards_path = dir.join("boards.txt");
+        if boards_path.exists() {
+            std::fs::read_to_string(&boards_path)
+                .expect("Unable to read boards_file")
+                .lines()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+        } else {
+            println!(
+                "No boards or boards-file was specified, and `{}` doesn't exist!",
+                dir.display()
+            );
+            exit(1);
+        }
+    };
+
+    // INVARIANT: At this point it is always safe to write "config.json" and
+    // "boards.txt" to disk. This will either result in writing the file
+    // contents to itself (basically a no-op) or overwriting old data.
+
     let (mut card_config, tree_config) =
-        deserialize_configs_from_file(&args.config).expect("Couldn't deserialize config");
+        deserialize_configs_from_file(&config_path).expect("Couldn't deserialize config");
 
     // Update card_config and tree_config with command-line specified data
     if let Some(range_string) = args.oop_range {
@@ -95,6 +164,7 @@ fn main() -> Result<(), String> {
             exit(1);
         }
     }
+
     if let Some(range_string) = args.ip_range {
         let range_result = range_string.parse::<Range>();
         if let Ok(range) = range_result {
@@ -116,31 +186,11 @@ fn main() -> Result<(), String> {
         target_exploitability
     );
 
-    // Create output directory if needed. Check if ".pfs" files exist, and if so abort
-    let dir = PathBuf::from(args.dir);
-    setup_output_directory(&dir)?;
-
     // Save config to output directory
-    let config_json_path = dir.join("config.json");
-    if config_json_path.exists() {
-        println!(
-            "Config already exists at path {}. Exiting.",
-            config_json_path.display()
-        );
-        exit(1);
-    }
-    let boards_file_out_path = dir.join("boards.txt");
-    if boards_file_out_path.exists() {
-        println!(
-            "Boards file exists at path {}. Exiting.",
-            boards_file_out_path.display()
-        );
-        exit(1);
-    }
 
     let config_json = configs_to_json(&card_config, &tree_config)?;
     let config_contents = serde_json::to_string_pretty(&config_json).map_err(|e| e.to_string())?;
-    std::fs::write(&config_json_path, config_contents).map_err(|e| e.to_string())?;
+    std::fs::write(&config_output_path, config_contents).map_err(|e| e.to_string())?;
 
     let existing_board_files = boards
         .iter()
@@ -149,7 +199,7 @@ fn main() -> Result<(), String> {
         .collect::<Vec<PathBuf>>();
 
     let boards_file_contents = boards.join("\n");
-    std::fs::write(&boards_file_out_path, &boards_file_contents).map_err(|e| e.to_string())?;
+    std::fs::write(&boards_output_path, &boards_file_contents).map_err(|e| e.to_string())?;
 
     // Check if boards exist
     if args.halt_on_existing && !existing_board_files.is_empty() {
