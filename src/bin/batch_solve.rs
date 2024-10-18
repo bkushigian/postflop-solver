@@ -86,16 +86,14 @@ fn main() -> Result<(), String> {
             exit(1);
         }
         PathBuf::from(config)
+    } else if config_output_path.exists() {
+        config_output_path.clone()
     } else {
-        if config_output_path.exists() {
-            config_output_path.clone()
-        } else {
-            println!(
-                "No config specified, and `{}` doesn't exist!",
-                config_output_path.display()
-            );
-            exit(1);
-        }
+        println!(
+            "No config specified, and `{}` doesn't exist!",
+            config_output_path.display()
+        );
+        exit(1);
     };
 
     // Boards was specified from command line (either --boards or --boards-file)
