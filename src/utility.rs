@@ -4,6 +4,7 @@ use crate::sliceop::*;
 use crate::CardConfig;
 use crate::TreeConfig;
 use std::mem::{self, MaybeUninit};
+use std::path::Path;
 use std::ptr;
 
 #[cfg(feature = "custom-alloc")]
@@ -835,6 +836,14 @@ pub(crate) fn apply_locking_strategy(dst: &mut [f32], locking: &[f32]) {
     }
 }
 
+/// Helper function to deserialize config jsons. The json should be of the form
+///
+/// ```json
+/// {
+///   "card_config": CARD_CONFIG,
+///   "tree_config": TREE_CONFIG
+/// }
+/// ```
 pub fn deserialize_configs(
     configs_json: &serde_json::Value,
 ) -> Result<(CardConfig, TreeConfig), String> {
@@ -854,6 +863,8 @@ pub fn deserialize_configs(
     Ok((card_config, tree_config))
 }
 
+/// Deserialize configs from a string. Converts to a `serde_json::Value` and
+/// invokes [`deserialize_configs`]
 pub fn deserialize_configs_from_str(
     config_json_contents: &str,
 ) -> Result<(CardConfig, TreeConfig), String> {
@@ -862,9 +873,19 @@ pub fn deserialize_configs_from_str(
     deserialize_configs(&value)
 }
 
-pub fn deserialize_configs_from_file(path: &str) -> Result<(CardConfig, TreeConfig), String> {
-    let contents =
-        std::fs::read_to_string(path).map_err(|e| format!("Couldn't read path: {}: {}", path, e));
+/// Deserialize configs from file. Reads into a string and invokes
+/// [`deserialize_configs_from_str`].
+pub fn deserialize_configs_from_file<P>(path: P) -> Result<(CardConfig, TreeConfig), String>
+where
+    P: AsRef<Path>,
+{
+    let contents = std::fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "Couldn't read path: {}: {}",
+            path.as_ref().to_path_buf().display(),
+            e
+        )
+    });
     deserialize_configs_from_str(&contents?)
 }
 
