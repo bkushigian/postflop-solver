@@ -141,7 +141,96 @@ impl TryFrom<&str> for BetSize {
     type Error = String;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        bet_size_from_str(s)
+        let s_lower = s.to_lowercase();
+        let err_msg = format!("Invalid bet size: {s}");
+
+        if let Some(prev_bet_rel) = s_lower.strip_suffix('x') {
+            // Previous bet relative
+            let float = parse_float(prev_bet_rel).ok_or(&err_msg)?;
+            if float <= 1.0 {
+                let err_msg = format!("Multiplier must be greater than 1.0: {s}");
+                Err(err_msg)
+            } else {
+                Ok(BetSize::PrevBetRelative(float))
+            }
+        } else if s_lower.contains('c') {
+            // Additive
+            let mut split = s_lower.split('c');
+            let add_str = split.next().ok_or(&err_msg)?;
+            let cap_str = split.next().ok_or(&err_msg)?;
+
+            let add = parse_float(add_str).ok_or(&err_msg)?;
+            if add.trunc() != add {
+                return Err(format!("Additional size must be an integer: {s}"));
+            }
+            if add > i32::MAX as f64 {
+                return Err(format!("Additional size must be less than 2^31: {s}"));
+            }
+
+            let cap = if cap_str.is_empty() {
+                0
+            } else {
+                let float_str = cap_str.strip_suffix('r').ok_or(&err_msg)?;
+                let float = parse_float(float_str).ok_or(&err_msg)?;
+                if float.trunc() != float || float == 0.0 {
+                    let err_msg = format!("Raise cap must be a positive integer: {s}");
+                    return Err(err_msg);
+                } else if float > 100.0 {
+                    let err_msg = format!("Raise cap must be less than or equal to 100: {s}");
+                    return Err(err_msg);
+                }
+                float as i32
+            };
+
+            if split.next().is_some() {
+                Err(err_msg)
+            } else {
+                Ok(BetSize::Additive(add as i32, cap))
+            }
+        } else if s_lower.contains('e') {
+            // Geometric
+            let mut split = s_lower.split('e');
+            let num_streets_str = split.next().ok_or(&err_msg)?;
+            let max_pot_rel_str = split.next().ok_or(&err_msg)?;
+
+            let num_streets = if num_streets_str.is_empty() {
+                0
+            } else {
+                let float = parse_float(num_streets_str).ok_or(&err_msg)?;
+                if float.trunc() != float || float == 0.0 {
+                    let err_msg = format!("Number of streets must be a positive integer: {s}");
+                    return Err(err_msg);
+                } else if float > 100.0 {
+                    let err_msg =
+                        format!("Number of streets must be less than or equal to 100: {s}");
+                    return Err(err_msg);
+                }
+                float as i32
+            };
+
+            let max_pot_rel = if max_pot_rel_str.is_empty() {
+                f64::INFINITY
+            } else {
+                let max_pot_rel_str = max_pot_rel_str.strip_suffix('%').ok_or(&err_msg)?;
+                parse_float(max_pot_rel_str).ok_or(&err_msg)? / 100.0
+            };
+
+            if split.next().is_some() {
+                Err(err_msg)
+            } else {
+                Ok(BetSize::Geometric(num_streets, max_pot_rel))
+            }
+        } else if let Some(pot_rel) = s_lower.strip_suffix('%') {
+            // Pot relative (must be after the geometric check)
+            let float = parse_float(pot_rel).ok_or(&err_msg)?;
+            Ok(BetSize::PotRelative(float / 100.0))
+        } else if s_lower == "a" {
+            // All-in
+            Ok(BetSize::AllIn)
+        } else {
+            // Parse error
+            Err(err_msg)
+        }
     }
 }
 
@@ -223,7 +312,7 @@ fn bet_sizes_from_str(bets_str: &str) -> Result<Vec<BetSize>, String> {
     let mut bets = Vec::new();
 
     for bet_size in bet_sizes {
-        bets.push(bet_size_from_str(bet_size)?);
+        bets.push(BetSize::try_from(bet_size)?);
     }
 
     bets.sort_unstable_by(|l, r| l.partial_cmp(r).unwrap());
@@ -238,98 +327,6 @@ where
     let s = String::deserialize(deserializer)?;
     let bet_sizes = bet_sizes_from_str(&s);
     bet_sizes.map_err(de::Error::custom)
-}
-
-fn bet_size_from_str(s: &str) -> Result<BetSize, String> {
-    let s_lower = s.to_lowercase();
-    let err_msg = format!("Invalid bet size: {s}");
-
-    if let Some(prev_bet_rel) = s_lower.strip_suffix('x') {
-        // Previous bet relative
-        let float = parse_float(prev_bet_rel).ok_or(&err_msg)?;
-        if float <= 1.0 {
-            let err_msg = format!("Multiplier must be greater than 1.0: {s}");
-            Err(err_msg)
-        } else {
-            Ok(BetSize::PrevBetRelative(float))
-        }
-    } else if s_lower.contains('c') {
-        // Additive
-        let mut split = s_lower.split('c');
-        let add_str = split.next().ok_or(&err_msg)?;
-        let cap_str = split.next().ok_or(&err_msg)?;
-
-        let add = parse_float(add_str).ok_or(&err_msg)?;
-        if add.trunc() != add {
-            return Err(format!("Additional size must be an integer: {s}"));
-        }
-        if add > i32::MAX as f64 {
-            return Err(format!("Additional size must be less than 2^31: {s}"));
-        }
-
-        let cap = if cap_str.is_empty() {
-            0
-        } else {
-            let float_str = cap_str.strip_suffix('r').ok_or(&err_msg)?;
-            let float = parse_float(float_str).ok_or(&err_msg)?;
-            if float.trunc() != float || float == 0.0 {
-                let err_msg = format!("Raise cap must be a positive integer: {s}");
-                return Err(err_msg);
-            } else if float > 100.0 {
-                let err_msg = format!("Raise cap must be less than or equal to 100: {s}");
-                return Err(err_msg);
-            }
-            float as i32
-        };
-
-        if split.next().is_some() {
-            Err(err_msg)
-        } else {
-            Ok(BetSize::Additive(add as i32, cap))
-        }
-    } else if s_lower.contains('e') {
-        // Geometric
-        let mut split = s_lower.split('e');
-        let num_streets_str = split.next().ok_or(&err_msg)?;
-        let max_pot_rel_str = split.next().ok_or(&err_msg)?;
-
-        let num_streets = if num_streets_str.is_empty() {
-            0
-        } else {
-            let float = parse_float(num_streets_str).ok_or(&err_msg)?;
-            if float.trunc() != float || float == 0.0 {
-                let err_msg = format!("Number of streets must be a positive integer: {s}");
-                return Err(err_msg);
-            } else if float > 100.0 {
-                let err_msg = format!("Number of streets must be less than or equal to 100: {s}");
-                return Err(err_msg);
-            }
-            float as i32
-        };
-
-        let max_pot_rel = if max_pot_rel_str.is_empty() {
-            f64::INFINITY
-        } else {
-            let max_pot_rel_str = max_pot_rel_str.strip_suffix('%').ok_or(&err_msg)?;
-            parse_float(max_pot_rel_str).ok_or(&err_msg)? / 100.0
-        };
-
-        if split.next().is_some() {
-            Err(err_msg)
-        } else {
-            Ok(BetSize::Geometric(num_streets, max_pot_rel))
-        }
-    } else if let Some(pot_rel) = s_lower.strip_suffix('%') {
-        // Pot relative (must be after the geometric check)
-        let float = parse_float(pot_rel).ok_or(&err_msg)?;
-        Ok(BetSize::PotRelative(float / 100.0))
-    } else if s_lower == "a" {
-        // All-in
-        Ok(BetSize::AllIn)
-    } else {
-        // Parse error
-        Err(err_msg)
-    }
 }
 
 pub fn bet_size_to_string(bs: &BetSize) -> String {
@@ -376,7 +373,7 @@ mod tests {
         ];
 
         for (s, expected) in tests {
-            assert_eq!(bet_size_from_str(s), Ok(expected));
+            assert_eq!(BetSize::try_from(s), Ok(expected));
         }
 
         let error_tests = [
@@ -386,7 +383,7 @@ mod tests {
         ];
 
         for s in error_tests {
-            assert!(bet_size_from_str(s).is_err());
+            assert!(BetSize::try_from(s).is_err());
         }
     }
 
