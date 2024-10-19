@@ -4,6 +4,7 @@ use crate::mutex_like::*;
 
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
 pub(crate) const PLAYER_OOP: u8 = 0;
 pub(crate) const PLAYER_IP: u8 = 1;
@@ -44,7 +45,7 @@ pub enum Action {
 }
 
 /// An enum representing the board state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub enum BoardState {
@@ -52,6 +53,31 @@ pub enum BoardState {
     Flop = 0,
     Turn = 1,
     River = 2,
+}
+
+/// Used for default serde value
+fn zero_f64() -> f64 {
+    0.0
+}
+
+/// Used for default serde value
+fn zero_point_one_f64() -> f64 {
+    0.1
+}
+
+/// Used for default serde value
+fn zero_point_two_f64() -> f64 {
+    0.2
+}
+
+/// Used for default serde value
+fn two_point_five_f64() -> f64 {
+    2.5
+}
+
+/// Used for default serde value
+fn flop() -> BoardState {
+    BoardState::Flop
 }
 
 /// A struct containing the game tree configuration.
@@ -79,10 +105,11 @@ pub enum BoardState {
 ///     merging_threshold: 0.1,
 /// };
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct TreeConfig {
     /// Initial state of the game tree (flop, turn, or river).
+    #[serde(default = "flop")]
     pub initial_state: BoardState,
 
     /// Starting pot size. Must be greater than `0`.
@@ -92,34 +119,43 @@ pub struct TreeConfig {
     pub effective_stack: i32,
 
     /// Rake rate. Must be between `0.0` and `1.0`, inclusive.
+    #[serde(default = "zero_f64")]
     pub rake_rate: f64,
 
     /// Rake cap. Must be non-negative.
+    #[serde(default = "zero_f64")]
     pub rake_cap: f64,
 
     /// Bet size options of each player for the flop.
+    #[serde(default)]
     pub flop_bet_sizes: [BetSizeOptions; 2],
 
     /// Bet size options of each player for the turn.
+    #[serde(default)]
     pub turn_bet_sizes: [BetSizeOptions; 2],
 
     /// Bet size options of each player for the river.
+    #[serde(default)]
     pub river_bet_sizes: [BetSizeOptions; 2],
 
     /// Donk size options for the turn (set `None` to use default sizes).
+    #[serde(default)]
     pub turn_donk_sizes: Option<DonkSizeOptions>,
 
     /// Donk size options for the river (set `None` to use default sizes).
+    #[serde(default)]
     pub river_donk_sizes: Option<DonkSizeOptions>,
 
     /// Add all-in action if the ratio of maximum bet size to the pot is below or equal to this
     /// value (set `0.0` to disable).
+    #[serde(default = "two_point_five_f64")]
     pub add_allin_threshold: f64,
 
     /// Force all-in action if the SPR (stack/pot) after the opponent's call is below or equal to
     /// this value (set `0.0` to disable).
     ///
     /// Personal recommendation: between `0.1` and `0.2`
+    #[serde(default = "zero_point_two_f64")]
     pub force_allin_threshold: f64,
 
     /// Merge bet actions if there are bet actions with "close" values (set `0.0` to disable).
@@ -130,6 +166,7 @@ pub struct TreeConfig {
     /// Continue this process with the next highest bet size.
     ///
     /// Personal recommendation: around `0.1`
+    #[serde(default = "zero_point_one_f64")]
     pub merging_threshold: f64,
 }
 
@@ -562,7 +599,7 @@ impl ActionTree {
             actions.push(Action::Check);
 
             // donk bet
-            for &donk_size in &donk_options.as_ref().unwrap().donk {
+            for &donk_size in donk_options.as_ref().unwrap().donks() {
                 match donk_size {
                     BetSize::PotRelative(ratio) => {
                         let amount = (pot as f64 * ratio).round() as i32;
@@ -594,7 +631,7 @@ impl ActionTree {
             actions.push(Action::Check);
 
             // bet
-            for &bet_size in &bet_options[player as usize].bet {
+            for &bet_size in bet_options[player as usize].bets() {
                 match bet_size {
                     BetSize::PotRelative(ratio) => {
                         let amount = (pot as f64 * ratio).round() as i32;
@@ -627,7 +664,7 @@ impl ActionTree {
 
             if !info.allin_flag {
                 // raise
-                for &bet_size in &bet_options[player as usize].raise {
+                for &bet_size in bet_options[player as usize].raises() {
                     match bet_size {
                         BetSize::PotRelative(ratio) => {
                             let amount = prev_amount + (pot as f64 * ratio).round() as i32;
@@ -1092,4 +1129,54 @@ fn merge_bet_actions(actions: Vec<Action>, pot: i32, offset: i32, param: f64) ->
 
     ret.reverse();
     ret
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs::File,
+        io::{BufWriter, Write},
+    };
+
+    use super::TreeConfig;
+
+    #[test]
+    pub fn serialize_deserialize_tree_config() {
+        let tree_config = TreeConfig::default();
+        let config_string = serde_json::to_string(&tree_config).unwrap();
+
+        let path = format!("tree_config_0.json");
+        let file = File::create(&path).unwrap();
+
+        let mut writer = BufWriter::new(&file);
+        writer.write_all(config_string.as_bytes()).unwrap();
+        writer.flush().unwrap();
+
+        let tree_config_deserialized = std::fs::read_to_string(&path);
+        assert!(tree_config_deserialized.is_ok());
+
+        let tree_config_deserialized = serde_json::from_str(&tree_config_deserialized.unwrap());
+        assert!(
+            tree_config_deserialized.is_ok(),
+            "{:?}",
+            tree_config_deserialized
+        );
+
+        let tree_config_deserialized: TreeConfig = tree_config_deserialized.unwrap();
+        assert!(tree_config == tree_config_deserialized);
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    pub fn deserialize_partial_tree_config() {
+        let json = "{\"starting_pot\":20,\"effective_stack\":200}";
+        let tree_config: Result<TreeConfig, _> = serde_json::from_str(json);
+        assert!(
+            tree_config.is_ok(),
+            "Unable to read json string \"{}\":\n {:?}",
+            json,
+            tree_config
+        )
+    }
 }

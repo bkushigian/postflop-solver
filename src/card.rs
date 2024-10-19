@@ -4,6 +4,9 @@ use std::mem;
 
 #[cfg(feature = "bincode")]
 use bincode::{Decode, Encode};
+use serde::de;
+use serde::Deserializer;
+use serde::{ser, Deserialize, Serialize, Serializer};
 
 /// A type representing a card, defined as an alias of `u8`.
 ///
@@ -17,6 +20,127 @@ pub type Card = u8;
 
 /// Constant representing that the card is not yet dealt.
 pub const NOT_DEALT: Card = Card::MAX;
+
+/// For serialization
+pub const NOT_DEALT_STR: &str = "NOT_DEALT";
+
+#[inline]
+fn check_card(card: Card) -> Result<(), String> {
+    if card < 52 {
+        Ok(())
+    } else {
+        Err(format!("Invalid card: {card}"))
+    }
+}
+
+/// Attempts to convert a rank index to a rank character.
+///
+/// `12` => `'A'`, `11` => `'K'`, ..., `0` => `'2'`.
+#[inline]
+fn rank_to_char(rank: u8) -> Result<char, String> {
+    match rank {
+        12 => Ok('A'),
+        11 => Ok('K'),
+        10 => Ok('Q'),
+        9 => Ok('J'),
+        8 => Ok('T'),
+        0..=7 => Ok((rank + b'2') as char),
+        _ => Err(format!("Invalid input: {rank}")),
+    }
+}
+
+/// Attempts to convert a suit index to a suit character.
+///
+/// `0` => `'c'`, `1` => `'d'`, `2` => `'h'`, `3` => `'s'`.
+#[inline]
+fn suit_to_char(suit: u8) -> Result<char, String> {
+    match suit {
+        0 => Ok('c'),
+        1 => Ok('d'),
+        2 => Ok('h'),
+        3 => Ok('s'),
+        _ => Err(format!("Invalid input: {suit}")),
+    }
+}
+
+/// Attempts to convert a card into a string.
+///
+/// # Examples
+/// ```
+/// use postflop_solver::card_to_string;
+///
+/// assert_eq!(card_to_string(0), Ok("2c".to_string()));
+/// assert_eq!(card_to_string(5), Ok("3d".to_string()));
+/// assert_eq!(card_to_string(10), Ok("4h".to_string()));
+/// assert_eq!(card_to_string(51), Ok("As".to_string()));
+/// assert!(card_to_string(52).is_err());
+/// ```
+#[inline]
+pub fn card_to_string(card: Card) -> Result<String, String> {
+    check_card(card)?;
+    let rank = card >> 2;
+    let suit = card & 3;
+    Ok(format!("{}{}", rank_to_char(rank)?, suit_to_char(suit)?))
+}
+
+/// for serde default
+fn not_dealt() -> Card {
+    NOT_DEALT
+}
+
+pub fn serialize_card<S>(c: &Card, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let card_string = if *c == 255 {
+        NOT_DEALT_STR.to_string()
+    } else {
+        card_to_string(*c).map_err(ser::Error::custom)?
+    };
+    s.serialize_str(&card_string)
+}
+
+pub fn serialize_flop<S>(f: &[Card; 3], s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let card_strings: Result<Vec<String>, _> = f
+        .iter()
+        .map(|c| {
+            if *c == 255 {
+                Ok(NOT_DEALT_STR.to_string())
+            } else {
+                card_to_string(*c)
+            }
+        })
+        .collect();
+    let card_strings = card_strings.map_err(ser::Error::custom)?;
+    let cards = card_strings.join("");
+    s.serialize_str(&cards)
+}
+
+pub fn deserialize_card<'de, D>(deserializer: D) -> Result<Card, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let card = if s == *NOT_DEALT_STR {
+        Ok(255)
+    } else {
+        card_from_str(&s)
+    };
+
+    card.map_err(de::Error::custom)
+}
+
+pub fn deserialize_flop<'de, D>(deserializer: D) -> Result<[Card; 3], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let bet_sizes = flop_from_str(&s);
+    bet_sizes.map_err(de::Error::custom)
+}
 
 /// A struct containing the card configuration.
 ///
@@ -34,19 +158,33 @@ pub const NOT_DEALT: Card = Card::MAX;
 ///     river: NOT_DEALT,
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct CardConfig {
     /// Initial range of each player.
     pub range: [Range; 2],
 
     /// Flop cards: each card must be unique.
+    #[serde(
+        serialize_with = "serialize_flop",
+        deserialize_with = "deserialize_flop"
+    )]
     pub flop: [Card; 3],
 
     /// Turn card: must be in range [`0`, `52`) or `NOT_DEALT`.
+    #[serde(
+        default = "not_dealt",
+        serialize_with = "serialize_card",
+        deserialize_with = "deserialize_card"
+    )]
     pub turn: Card,
 
     /// River card: must be in range [`0`, `52`) or `NOT_DEALT`.
+    #[serde(
+        default = "not_dealt",
+        serialize_with = "serialize_card",
+        deserialize_with = "deserialize_card"
+    )]
     pub river: Card,
 }
 
@@ -244,6 +382,56 @@ impl CardConfig {
         }
 
         ret
+    }
+
+    /// Return the current card configuration with new board cards.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use postflop_solver::*;
+    ///
+    /// let oop_range = "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s";
+    /// let ip_range = "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+";
+    /// let ranges = [oop_range.parse().unwrap(), ip_range.parse().unwrap()];
+    ///
+    /// let card_config = CardConfig {
+    ///     range: ranges,
+    ///     flop: flop_from_str("Td9d6h").unwrap(),
+    ///     turn: card_from_str("Qc").unwrap(),
+    ///     river: NOT_DEALT,
+    /// };
+    ///
+    /// let cards = cards_from_str("Th9d3c4h").unwrap();
+    /// let card_config2 = card_config.with_cards(cards).unwrap();
+    /// assert_eq!(card_config2.range, ranges);
+    /// assert_eq!(card_config2.flop, [34, 29, 4]);
+    /// assert_eq!(card_config2.turn, 10);
+    /// assert_eq!(card_config2.river, NOT_DEALT);
+    /// ```
+    pub fn with_cards(&self, cards: Vec<Card>) -> Result<CardConfig, String> {
+        let num_cards =
+            3 + ((self.turn != NOT_DEALT) as usize) + ((self.river != NOT_DEALT) as usize);
+        if cards.len() != num_cards {
+            Err(format!(
+                "Current CardConfig has {} cards but supplied cards list {:?} has {} cards",
+                num_cards,
+                cards,
+                cards.len()
+            ))
+        } else {
+            let turn = cards.get(3).unwrap_or(&NOT_DEALT);
+            let river = cards.get(4).unwrap_or(&NOT_DEALT);
+            let mut flop: [Card; 3] = [cards[0], cards[1], cards[2]];
+            flop.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+            Ok(Self {
+                range: self.range,
+                flop,
+                turn: *turn,
+                river: *river,
+            })
+        }
     }
 
     pub(crate) fn isomorphism(&self, private_cards: &[Vec<(Card, Card)>; 2]) -> IsomorphismData {
@@ -450,4 +638,7 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_serialize_deserialize_card_config() {}
 }
