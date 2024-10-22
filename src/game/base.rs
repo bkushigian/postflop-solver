@@ -1447,4 +1447,10 @@ impl PostFlopGame {
             }
         }
     }
+
+    /// Return the size of the pot
+    #[inline]
+    pub fn pot(&self) -> i32 {
+        self.total_bet_amount()[0] + self.total_bet_amount()[1] + self.tree_config.starting_pot
+    }
 }
