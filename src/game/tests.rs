@@ -1309,12 +1309,14 @@ fn deserialize_config_defaults() {
         \"tree_config\": {
             \"starting_pot\": 10,
             \"effective_stack\": 500
-        }
+        },
+        \"added_lines\": [],
+        \"removed_lines\": []
     }";
 
     let result = deserialize_configs_from_str(config_contents);
     assert!(result.is_ok());
-    let (card_config, tree_config) = result.unwrap();
+    let (card_config, tree_config, added, removed) = result.unwrap();
 
     assert_eq!(card_config.flop, flop_from_str("6h9dTd").unwrap());
     assert_eq!(card_config.turn, NOT_DEALT);
@@ -1338,6 +1340,9 @@ fn deserialize_config_defaults() {
 
     assert_eq!(tree_config.rake_cap, 0.0);
     assert_eq!(tree_config.rake_rate, 0.0);
+
+    assert!(added.is_empty());
+    assert!(removed.is_empty());
 
     // This should not deserialize:
     let config_contents = "{}";

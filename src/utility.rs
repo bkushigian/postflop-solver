@@ -1,6 +1,7 @@
 use crate::interface::*;
 use crate::mutex_like::*;
 use crate::sliceop::*;
+use crate::Action;
 use crate::CardConfig;
 use crate::TreeConfig;
 use std::mem::{self, MaybeUninit};
@@ -836,38 +837,51 @@ pub(crate) fn apply_locking_strategy(dst: &mut [f32], locking: &[f32]) {
     }
 }
 
+pub type Line = Vec<Action>;
+
 /// Helper function to deserialize config jsons. The json should be of the form
 ///
 /// ```json
 /// {
 ///   "card_config": CARD_CONFIG,
-///   "tree_config": TREE_CONFIG
+///   "tree_config": TREE_CONFIG,
+///   "added_lines": Vec<Action>,
+///   "removed_lines": Vec<Action>
 /// }
 /// ```
 pub fn deserialize_configs_from_json(
     configs_json: &serde_json::Value,
-) -> Result<(CardConfig, TreeConfig), String> {
+) -> Result<(CardConfig, TreeConfig, Vec<Line>, Vec<Line>), String> {
     let map = configs_json.as_object().ok_or({
         "Config JSON must be a JSON object with keys \"tree_config\" and \"card_config\""
     })?;
+    let empty_array = serde_json::Value::Array(vec![]);
     let tree_config = map
         .get("tree_config")
         .ok_or("Config JSON must contain key \"tree_config\"")?;
     let card_config = map
         .get("card_config")
         .ok_or("Config JSON must contain key \"card_config\"")?;
+    let added_lines = map.get("added_lines").unwrap_or(&empty_array);
+    let removed_lines = map.get("removed_lines").unwrap_or(&empty_array);
+
     let tree_config: TreeConfig = serde_json::from_value(tree_config.clone())
         .map_err(|e| format!("Error deserializing tree_config: {:?}", e))?;
     let card_config: CardConfig = serde_json::from_value(card_config.clone())
         .map_err(|e| format!("Error deserializing card_config: {:?}", e))?;
-    Ok((card_config, tree_config))
+    let added_lines: Vec<Vec<Action>> = serde_json::from_value(added_lines.clone())
+        .map_err(|e| format!("Error deserializing added_lines: {:?}", e))?;
+    let removed_lines: Vec<Vec<Action>> = serde_json::from_value(removed_lines.clone())
+        .map_err(|e| format!("Error deserializing removed_lines: {:?}", e))?;
+
+    Ok((card_config, tree_config, added_lines, removed_lines))
 }
 
 /// Deserialize configs from a string. Converts to a `serde_json::Value` and
 /// invokes [`deserialize_configs`]
 pub fn deserialize_configs_from_str(
     config_json_contents: &str,
-) -> Result<(CardConfig, TreeConfig), String> {
+) -> Result<(CardConfig, TreeConfig, Vec<Line>, Vec<Line>), String> {
     let value: Result<serde_json::Value, _> = serde_json::from_str(config_json_contents);
     let value = value.map_err(|e| format!("Couldn't deserialize json contents: {}", e))?;
     deserialize_configs_from_json(&value)
@@ -875,7 +889,9 @@ pub fn deserialize_configs_from_str(
 
 /// Deserialize configs from file. Reads into a string and invokes
 /// [`deserialize_configs_from_str`].
-pub fn deserialize_configs_from_file<P>(path: P) -> Result<(CardConfig, TreeConfig), String>
+pub fn deserialize_configs_from_file<P>(
+    path: P,
+) -> Result<(CardConfig, TreeConfig, Vec<Line>, Vec<Line>), String>
 where
     P: AsRef<Path>,
 {
@@ -892,6 +908,8 @@ where
 pub fn serialize_configs_to_json(
     card_config: &CardConfig,
     tree_config: &TreeConfig,
+    added_lines: &[Vec<Action>],
+    removed_lines: &[Vec<Action>],
 ) -> Result<serde_json::Value, String> {
     let tree_config_result = serde_json::to_value(tree_config);
     let tree_config = tree_config_result.map_err(|e| {
@@ -907,9 +925,25 @@ pub fn serialize_configs_to_json(
             card_config, e
         )
     })?;
+    let added_lines_result = serde_json::to_value(added_lines);
+    let added_lines_json = added_lines_result.map_err(|e| {
+        format!(
+            "Couldn't serialize added lines {:?} to JSON:\n{}",
+            added_lines, e
+        )
+    })?;
+    let removed_lines_result = serde_json::to_value(removed_lines);
+    let removed_lines_json = removed_lines_result.map_err(|e| {
+        format!(
+            "Couldn't serialize removed lines {:?} to JSON:\n{}",
+            removed_lines, e
+        )
+    })?;
     let mut map = serde_json::Map::new();
     map.insert("tree_config".to_string(), tree_config.clone());
     map.insert("card_config".to_string(), card_config.clone());
+    map.insert("added_lines".to_string(), added_lines_json);
+    map.insert("removed_lines".to_string(), removed_lines_json);
     let json_config = serde_json::Value::Object(map);
     Ok(json_config)
 }

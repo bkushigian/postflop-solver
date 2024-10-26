@@ -148,7 +148,7 @@ fn main() -> Result<(), String> {
     // "boards.txt" to disk. This will either result in writing the file
     // contents to itself (basically a no-op) or overwriting old data.
 
-    let (mut card_config, tree_config) =
+    let (mut card_config, tree_config, added_lines, removed_lines) =
         deserialize_configs_from_file(&config_path).expect("Couldn't deserialize config");
 
     // Update card_config and tree_config with command-line specified data
@@ -186,7 +186,9 @@ fn main() -> Result<(), String> {
 
     // Save config to output directory
 
-    let config_json = serialize_configs_to_json(&card_config, &tree_config)?;
+    let config_json =
+        serialize_configs_to_json(&card_config, &tree_config, &added_lines, &removed_lines)?;
+
     let config_contents = serde_json::to_string_pretty(&config_json).map_err(|e| e.to_string())?;
     std::fs::write(&config_output_path, config_contents).map_err(|e| e.to_string())?;
 
