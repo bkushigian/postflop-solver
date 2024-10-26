@@ -138,7 +138,7 @@ fn main() -> Result<(), String> {
         } else {
             println!(
                 "No boards or boards-file was specified, and `{}` doesn't exist!",
-                dir.display()
+                boards_path.display()
             );
             exit(1);
         }
