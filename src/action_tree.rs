@@ -1146,13 +1146,13 @@ mod tests {
         let config_string = serde_json::to_string(&tree_config).unwrap();
 
         let path = "tree_config_0.json";
-        let file = File::create(&path).unwrap();
+        let file = File::create(path).unwrap();
 
         let mut writer = BufWriter::new(&file);
         writer.write_all(config_string.as_bytes()).unwrap();
         writer.flush().unwrap();
 
-        let tree_config_deserialized = std::fs::read_to_string(&path);
+        let tree_config_deserialized = std::fs::read_to_string(path);
         assert!(tree_config_deserialized.is_ok());
 
         let tree_config_deserialized = serde_json::from_str(&tree_config_deserialized.unwrap());
@@ -1165,7 +1165,7 @@ mod tests {
         let tree_config_deserialized: TreeConfig = tree_config_deserialized.unwrap();
         assert!(tree_config == tree_config_deserialized);
 
-        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]
