@@ -878,7 +878,7 @@ pub fn deserialize_configs_from_json(
 }
 
 /// Deserialize configs from a string. Converts to a `serde_json::Value` and
-/// invokes [`deserialize_configs`]
+/// invokes [`deserialize_configs_from_json`]
 pub fn deserialize_configs_from_str(
     config_json_contents: &str,
 ) -> Result<(CardConfig, TreeConfig, Vec<Line>, Vec<Line>), String> {
