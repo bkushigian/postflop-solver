@@ -1311,7 +1311,7 @@ fn deserialize_config_defaults() {
             \"effective_stack\": 500
         },
         \"added_lines\": [],
-        \"removed_lines\": []
+        \"removed_lines\": [[\"Check\", \"Check\"]]
     }";
 
     let result = deserialize_configs_from_str(config_contents);
@@ -1342,7 +1342,7 @@ fn deserialize_config_defaults() {
     assert_eq!(tree_config.rake_rate, 0.0);
 
     assert!(added.is_empty());
-    assert!(removed.is_empty());
+    assert_eq!(removed, vec![vec![Action::Check, Action::Check]]);
 
     // This should not deserialize:
     let config_contents = "{}";
