@@ -1145,7 +1145,7 @@ mod tests {
         let tree_config = TreeConfig::default();
         let config_string = serde_json::to_string(&tree_config).unwrap();
 
-        let path = format!("tree_config_0.json");
+        let path = "tree_config_0.json";
         let file = File::create(&path).unwrap();
 
         let mut writer = BufWriter::new(&file);
