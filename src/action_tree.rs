@@ -15,7 +15,7 @@ pub(crate) const PLAYER_TERMINAL_FLAG: u8 = 8;
 pub(crate) const PLAYER_FOLD_FLAG: u8 = 24;
 
 /// Available actions of the postflop game.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub enum Action {
     /// (Default value)

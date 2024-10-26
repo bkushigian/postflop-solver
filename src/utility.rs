@@ -844,7 +844,7 @@ pub(crate) fn apply_locking_strategy(dst: &mut [f32], locking: &[f32]) {
 ///   "tree_config": TREE_CONFIG
 /// }
 /// ```
-pub fn deserialize_configs(
+pub fn deserialize_configs_from_json(
     configs_json: &serde_json::Value,
 ) -> Result<(CardConfig, TreeConfig), String> {
     let map = configs_json.as_object().ok_or({
@@ -870,7 +870,7 @@ pub fn deserialize_configs_from_str(
 ) -> Result<(CardConfig, TreeConfig), String> {
     let value: Result<serde_json::Value, _> = serde_json::from_str(config_json_contents);
     let value = value.map_err(|e| format!("Couldn't deserialize json contents: {}", e))?;
-    deserialize_configs(&value)
+    deserialize_configs_from_json(&value)
 }
 
 /// Deserialize configs from file. Reads into a string and invokes
@@ -889,7 +889,7 @@ where
     deserialize_configs_from_str(&contents?)
 }
 
-pub fn configs_to_json(
+pub fn serialize_configs_to_json(
     card_config: &CardConfig,
     tree_config: &TreeConfig,
 ) -> Result<serde_json::Value, String> {

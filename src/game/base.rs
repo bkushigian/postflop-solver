@@ -1465,13 +1465,13 @@ impl PostFlopGame {
     /// future versions. It returns a JSON object with a game's `TreeConfig` and
     /// `CardConfig`.
     pub fn configs_as_json(&self) -> Result<serde_json::Value, String> {
-        configs_to_json(self.card_config(), self.tree_config())
+        serialize_configs_to_json(self.card_config(), self.tree_config())
     }
 
     pub fn game_from_configs_json(
         configs_json: &serde_json::Value,
     ) -> Result<PostFlopGame, String> {
-        let (card_config, tree_config) = deserialize_configs(configs_json)?;
+        let (card_config, tree_config) = deserialize_configs_from_json(configs_json)?;
         let action_tree = ActionTree::new(tree_config)?;
         PostFlopGame::with_config(card_config, action_tree)
     }

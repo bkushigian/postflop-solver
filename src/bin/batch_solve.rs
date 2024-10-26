@@ -5,8 +5,8 @@ use std::{
 
 use clap::Parser;
 use postflop_solver::{
-    cards_from_str, configs_to_json, deserialize_configs_from_file, save_data_to_file, solve,
-    ActionTree, BoardState, PostFlopGame, Range,
+    cards_from_str, deserialize_configs_from_file, save_data_to_file, serialize_configs_to_json,
+    solve, ActionTree, BoardState, PostFlopGame, Range,
 };
 
 /// Simple program to greet a person
@@ -186,7 +186,7 @@ fn main() -> Result<(), String> {
 
     // Save config to output directory
 
-    let config_json = configs_to_json(&card_config, &tree_config)?;
+    let config_json = serialize_configs_to_json(&card_config, &tree_config)?;
     let config_contents = serde_json::to_string_pretty(&config_json).map_err(|e| e.to_string())?;
     std::fs::write(&config_output_path, config_contents).map_err(|e| e.to_string())?;
 
