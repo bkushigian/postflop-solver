@@ -1,6 +1,6 @@
 use postflop_solver::*;
 
-fn main() {
+fn main() -> Result<(), String> {
     // ranges of OOP and IP in string format
     // see the documentation of `Range` for more details about the format
     let oop_range = "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s";
@@ -105,7 +105,7 @@ fn main() {
     );
 
     // play `Bet(120)`
-    game.play(1);
+    game.play(1)?;
 
     // get available actions (IP)
     let actions = game.available_actions();
@@ -130,7 +130,7 @@ fn main() {
     assert!((strategy[ksjs] + strategy[ksjs + 250] + strategy[ksjs + 500] - 1.0).abs() < 1e-6);
 
     // play `Call`
-    game.play(1);
+    game.play(1)?;
 
     // confirm that the current node is a chance node (i.e., river node)
     assert!(game.is_chance_node());
@@ -140,8 +140,10 @@ fn main() {
     assert!(game.possible_cards() & (1 << card_7s) != 0);
 
     // deal "7s"
-    game.play(card_7s as usize);
+    game.play(card_7s as usize)?;
 
     // back to the root node
     game.back_to_root();
+
+    Ok(())
 }
