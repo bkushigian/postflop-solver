@@ -137,7 +137,7 @@ fn main() -> Result<(), String> {
 
     // confirm that "7s" can be dealt
     let card_7s = card_from_str("7s").unwrap();
-    assert!(game.possible_cards() & (1 << card_7s) != 0);
+    assert!(game.possible_cards()? & (1 << card_7s) != 0);
 
     // deal "7s"
     game.play(card_7s as usize)?;

@@ -123,13 +123,13 @@ impl PostFlopGame {
     /// The returned value is a 64-bit integer.
     /// The `i`-th bit is set to 1 if the card of ID `i` can be dealt (see [`Card`] for encoding).
     /// If the current node is not a chance node, `0` is returned.
-    pub fn possible_cards(&self) -> u64 {
+    pub fn possible_cards(&self) -> Result<u64, String> {
         if self.state <= State::Uninitialized {
-            panic!("Game is not successfully initialized");
+            return Err("Game is not successfully initialized".to_string());
         }
 
         if !self.is_chance_node() {
-            return 0;
+            return Ok(0);
         }
 
         let flop = self.card_config.flop;
@@ -223,7 +223,7 @@ impl PostFlopGame {
             }
         }
 
-        ((1 << 52) - 1) ^ dead_mask
+        Ok(((1 << 52) - 1) ^ dead_mask)
     }
 
     /// Returns the current player (0 = OOP, 1 = IP).
@@ -291,7 +291,7 @@ impl PostFlopGame {
             }
 
             let actual_card = if action == usize::MAX {
-                self.possible_cards().trailing_zeros() as Card
+                self.possible_cards()?.trailing_zeros() as Card
             } else {
                 action as Card
             };
