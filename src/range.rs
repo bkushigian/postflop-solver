@@ -1,7 +1,9 @@
 use crate::card::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::fmt::Write;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt::{self, Write};
 use std::str::FromStr;
 
 #[cfg(feature = "bincode")]
@@ -189,26 +191,6 @@ fn suit_to_char(suit: u8) -> Result<char, String> {
     }
 }
 
-/// Attempts to convert a card into a string.
-///
-/// # Examples
-/// ```
-/// use postflop_solver::card_to_string;
-///
-/// assert_eq!(card_to_string(0), Ok("2c".to_string()));
-/// assert_eq!(card_to_string(5), Ok("3d".to_string()));
-/// assert_eq!(card_to_string(10), Ok("4h".to_string()));
-/// assert_eq!(card_to_string(51), Ok("As".to_string()));
-/// assert!(card_to_string(52).is_err());
-/// ```
-#[inline]
-pub fn card_to_string(card: Card) -> Result<String, String> {
-    check_card(card)?;
-    let rank = card >> 2;
-    let suit = card & 3;
-    Ok(format!("{}{}", rank_to_char(rank)?, suit_to_char(suit)?))
-}
-
 /// Attempts to convert hole cards into a string.
 ///
 /// See [`Card`] for encoding of cards.
@@ -299,6 +281,29 @@ pub fn card_from_str(s: &str) -> Result<Card, String> {
         return Err("Expected exactly two characters".to_string());
     }
 
+    Ok(result)
+}
+
+/// Attempts to convert an optionally space-separated string into an unsorted
+/// card vec.
+///
+/// # Examples
+/// ```
+/// use postflop_solver::cards_from_str;
+///
+/// assert_eq!(cards_from_str("2c3d4h"), Ok(vec![0, 5, 10]));
+/// assert_eq!(cards_from_str("As Ah Ks"), Ok(vec![51, 50, 47]));
+/// ```
+pub fn cards_from_str(s: &str) -> Result<Vec<Card>, String> {
+    let chars = s.chars();
+    let mut result = vec![];
+
+    let mut chars = chars.peekable();
+    while chars.peek().is_some() {
+        result.push(card_from_chars(
+            &mut chars.by_ref().skip_while(|c| c.is_whitespace()),
+        )?);
+    }
     Ok(result)
 }
 
@@ -952,6 +957,44 @@ impl Range {
     }
 }
 
+impl Serialize for Range {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Range {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct RangeVisitor;
+
+        // A workaround in a clippy bug
+        #[allow(clippy::needless_lifetimes)]
+        impl<'de> Visitor<'de> for RangeVisitor {
+            type Value = Range;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a valid range string")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Range::from_str(v).map_err(|m| {
+                    de::Error::custom(format!("Invalid range string \"{}\"\n\n{}", v, m).as_str())
+                })
+            }
+        }
+        deserializer.deserialize_str(RangeVisitor)
+    }
+}
+
 impl FromStr for Range {
     type Err = String;
 
@@ -1004,6 +1047,11 @@ impl ToString for Range {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs::File,
+        io::{BufWriter, Write},
+    };
+
     use super::*;
 
     #[test]
@@ -1162,6 +1210,49 @@ mod tests {
             let range = input.parse::<Range>();
             assert!(range.is_ok());
             assert_eq!(range.unwrap().to_string(), expected);
+        }
+    }
+
+    use serde_json;
+    #[test]
+    pub fn serialize_and_deserialize() {
+        let tests = [
+            "AA,KK",
+            "KK,QQ",
+            "66-22,TT+",
+            "AA:0.5, KK:1.0, QQ:1.0, JJ:0.5",
+            "AA,AK,AQ",
+            "AK,AQ,AJs",
+            "KQ,KT,K9,K8,K6,K5",
+            "AhAs-QhQs,JJ",
+            "KJs+,KQo,KsJh",
+            "KcQh,KJ",
+        ];
+
+        for (test_no, input) in tests.iter().enumerate() {
+            let range = input.parse::<Range>();
+            assert!(range.is_ok());
+
+            let range = range.unwrap();
+            let json_string = serde_json::to_string(&range).unwrap();
+
+            let path = format!("range_{test_no}.json");
+            let file = File::create(&path).unwrap();
+
+            let mut writer = BufWriter::new(&file);
+            writer.write_all(json_string.as_bytes()).unwrap();
+            writer.flush().unwrap();
+
+            let range_deserialized = std::fs::read_to_string(&path);
+            assert!(range_deserialized.is_ok());
+
+            let range_deserialized = serde_json::from_str(&range_deserialized.unwrap());
+            assert!(range_deserialized.is_ok(), "{:?}", range_deserialized);
+
+            let range_deserialized = range_deserialized.unwrap();
+            assert!(range == range_deserialized);
+
+            std::fs::remove_file(&path).unwrap();
         }
     }
 }

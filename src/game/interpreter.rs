@@ -56,15 +56,16 @@ impl PostFlopGame {
     /// [`back_to_root`]: #method.back_to_root
     /// [`play`]: #method.play
     #[inline]
-    pub fn apply_history(&mut self, history: &[usize]) {
+    pub fn apply_history(&mut self, history: &[usize]) -> Result<(), String> {
         if self.state <= State::Uninitialized {
-            panic!("Game is not successfully initialized");
+            return Err("Game is not successfully initialized".to_string());
         }
 
         self.back_to_root();
         for &action in history {
-            self.play(action);
+            self.play(action)?;
         }
+        Ok(())
     }
 
     /// Returns whether the current node is a terminal node.
@@ -122,13 +123,13 @@ impl PostFlopGame {
     /// The returned value is a 64-bit integer.
     /// The `i`-th bit is set to 1 if the card of ID `i` can be dealt (see [`Card`] for encoding).
     /// If the current node is not a chance node, `0` is returned.
-    pub fn possible_cards(&self) -> u64 {
+    pub fn possible_cards(&self) -> Result<u64, String> {
         if self.state <= State::Uninitialized {
-            panic!("Game is not successfully initialized");
+            return Err("Game is not successfully initialized".to_string());
         }
 
         if !self.is_chance_node() {
-            return 0;
+            return Ok(0);
         }
 
         let flop = self.card_config.flop;
@@ -222,7 +223,7 @@ impl PostFlopGame {
             }
         }
 
-        ((1 << 52) - 1) ^ dead_mask
+        Ok(((1 << 52) - 1) ^ dead_mask)
     }
 
     /// Returns the current player (0 = OOP, 1 = IP).
@@ -271,13 +272,13 @@ impl PostFlopGame {
     /// **Time complexity:** *O*(#(OOP private hands) + #(IP private hands))
     ///
     /// [`available_actions`]: #method.available_actions
-    pub fn play(&mut self, action: usize) {
+    pub fn play(&mut self, action: usize) -> Result<(), String> {
         if self.state < State::MemoryAllocated {
-            panic!("Memory is not allocated");
+            return Err("Memory is not allocated".to_string());
         }
 
         if self.is_terminal_node() {
-            panic!("Terminal node is not allowed");
+            return Err("Terminal node is not allowed".to_string());
         }
 
         // chance node
@@ -286,11 +287,11 @@ impl PostFlopGame {
             if self.storage_mode == BoardState::Flop
                 || (!is_turn && self.storage_mode == BoardState::Turn)
             {
-                panic!("Storage mode is not compatible");
+                return Err("Storage mode is not compatible".to_string());
             }
 
             let actual_card = if action == usize::MAX {
-                self.possible_cards().trailing_zeros() as Card
+                self.possible_cards()?.trailing_zeros() as Card
             } else {
                 action as Card
             };
@@ -353,7 +354,7 @@ impl PostFlopGame {
 
             // panic if the action is not found
             if action_index == usize::MAX {
-                panic!("Invalid action");
+                return Err("Invalid action".to_string());
             }
 
             // update the state
@@ -373,7 +374,7 @@ impl PostFlopGame {
             // panic if the action is invalid
             let node = self.node();
             if action >= node.num_actions() {
-                panic!("Invalid action");
+                return Err("Invalid action".to_string());
             }
 
             let player = node.player();
@@ -421,6 +422,8 @@ impl PostFlopGame {
 
         self.action_history.push(action);
         self.is_normalized_weight_cached = false;
+
+        Ok(())
     }
 
     /// Computes the normalized weights and caches them.
@@ -867,21 +870,21 @@ impl PostFlopGame {
     /// This method must be called after allocating memory and before solving the game.
     /// Panics if the memory is not yet allocated or the game is already solved.
     /// Also, panics if the current node is a terminal node or a chance node.
-    pub fn lock_current_strategy(&mut self, strategy: &[f32]) {
+    pub fn lock_current_strategy(&mut self, strategy: &[f32]) -> Result<(), String> {
         if self.state < State::MemoryAllocated {
-            panic!("Memory is not allocated");
+            return Err("Memory is not allocated".to_string());
         }
 
         if self.state == State::Solved {
-            panic!("Game is already solved");
+            return Err("Game is already solved".to_string());
         }
 
         if self.is_terminal_node() {
-            panic!("Terminal node is not allowed");
+            return Err("Terminal node is not allowed".to_string());
         }
 
         if self.is_chance_node() {
-            panic!("Chance node is not allowed");
+            return Err("Chance node is not allowed".to_string());
         }
 
         let mut node = self.node();
@@ -890,7 +893,7 @@ impl PostFlopGame {
         let num_hands = self.num_private_hands(player);
 
         if strategy.len() != num_actions * num_hands {
-            panic!("Invalid strategy length");
+            return Err("Invalid strategy length".to_string());
         }
 
         let mut locking = vec![-1.0; num_actions * num_hands];
@@ -922,6 +925,8 @@ impl PostFlopGame {
         node.is_locked = true;
         let index = self.node_index(&node);
         self.locking_strategy.insert(index, locking);
+
+        Ok(())
     }
 
     /// Unlocks the strategy of the current node.

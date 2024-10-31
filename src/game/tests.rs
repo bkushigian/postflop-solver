@@ -1,11 +1,15 @@
+use std::path::Path;
+
 use super::*;
 use crate::range::*;
 use crate::solver::*;
 use crate::utility::*;
+use crate::BetSizeOptions;
 use crate::BunchingData;
+use crate::DonkSizeOptions;
 
 #[test]
-fn all_check_all_range() {
+fn all_check_all_range() -> Result<(), String> {
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -36,7 +40,7 @@ fn all_check_all_range() {
     assert!((ev_oop - 30.0).abs() < 1e-4);
     assert!((ev_ip - 30.0).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -49,7 +53,7 @@ fn all_check_all_range() {
     assert!((ev_oop - 30.0).abs() < 1e-4);
     assert!((ev_ip - 30.0).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     assert!(game.is_chance_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -63,7 +67,7 @@ fn all_check_all_range() {
     assert!((ev_oop - 30.0).abs() < 1e-4);
     assert!((ev_ip - 30.0).abs() < 1e-4);
 
-    game.play(usize::MAX);
+    game.play(usize::MAX)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -76,12 +80,12 @@ fn all_check_all_range() {
     assert!((ev_oop - 30.0).abs() < 1e-4);
     assert!((ev_ip - 30.0).abs() < 1e-4);
 
-    game.play(0);
-    game.play(0);
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_terminal_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -94,10 +98,11 @@ fn all_check_all_range() {
     assert!((equity_ip - 0.5).abs() < 1e-5);
     assert!((ev_oop - 30.0).abs() < 1e-4);
     assert!((ev_ip - 30.0).abs() < 1e-4);
+    Ok(())
 }
 
 #[test]
-fn one_raise_all_range() {
+fn one_raise_all_range() -> Result<(), String> {
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -129,7 +134,7 @@ fn one_raise_all_range() {
     assert!((ev_oop - 37.5).abs() < 1e-4);
     assert!((ev_ip - 22.5).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -142,7 +147,7 @@ fn one_raise_all_range() {
     assert!((ev_oop - 37.5).abs() < 1e-4);
     assert!((ev_ip - 22.5).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     assert!(game.is_chance_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -156,7 +161,7 @@ fn one_raise_all_range() {
     assert!((ev_oop - 37.5).abs() < 1e-4);
     assert!((ev_ip - 22.5).abs() < 1e-4);
 
-    game.play(usize::MAX);
+    game.play(usize::MAX)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -169,11 +174,11 @@ fn one_raise_all_range() {
     assert!((ev_oop - 37.5).abs() < 1e-4);
     assert!((ev_ip - 22.5).abs() < 1e-4);
 
-    game.play(0);
-    game.play(0);
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(1);
+    game.play(usize::MAX)?;
+    game.play(1)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -186,7 +191,7 @@ fn one_raise_all_range() {
     assert!((ev_oop - 75.0).abs() < 1e-4);
     assert!((ev_ip - 15.0).abs() < 1e-4);
 
-    game.play(1);
+    game.play(1)?;
     assert!(game.is_terminal_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -199,10 +204,12 @@ fn one_raise_all_range() {
     assert!((equity_ip - 0.5).abs() < 1e-5);
     assert!((ev_oop - 60.0).abs() < 1e-4);
     assert!((ev_ip - 60.0).abs() < 1e-4);
+
+    Ok(())
 }
 
 #[test]
-fn one_raise_all_range_compressed() {
+fn one_raise_all_range_compressed() -> Result<(), String> {
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -234,7 +241,7 @@ fn one_raise_all_range_compressed() {
     assert!((ev_oop - 37.5).abs() < 1e-2);
     assert!((ev_ip - 22.5).abs() < 1e-2);
 
-    game.play(0);
+    game.play(0)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -247,7 +254,7 @@ fn one_raise_all_range_compressed() {
     assert!((ev_oop - 37.5).abs() < 1e-2);
     assert!((ev_ip - 22.5).abs() < 1e-2);
 
-    game.play(0);
+    game.play(0)?;
     assert!(game.is_chance_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -261,7 +268,7 @@ fn one_raise_all_range_compressed() {
     assert!((ev_oop - 37.5).abs() < 1e-2);
     assert!((ev_ip - 22.5).abs() < 1e-2);
 
-    game.play(usize::MAX);
+    game.play(usize::MAX)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -274,11 +281,11 @@ fn one_raise_all_range_compressed() {
     assert!((ev_oop - 37.5).abs() < 1e-2);
     assert!((ev_ip - 22.5).abs() < 1e-2);
 
-    game.play(0);
-    game.play(0);
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(1);
+    game.play(usize::MAX)?;
+    game.play(1)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -291,7 +298,7 @@ fn one_raise_all_range_compressed() {
     assert!((ev_oop - 75.0).abs() < 1e-2);
     assert!((ev_ip - 15.0).abs() < 1e-2);
 
-    game.play(1);
+    game.play(1)?;
     assert!(game.is_terminal_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -304,6 +311,7 @@ fn one_raise_all_range_compressed() {
     assert!((equity_ip - 0.5).abs() < 1e-4);
     assert!((ev_oop - 60.0).abs() < 1e-2);
     assert!((ev_ip - 60.0).abs() < 1e-2);
+    Ok(())
 }
 
 #[test]
@@ -344,7 +352,7 @@ fn one_raise_all_range_with_turn() {
 }
 
 #[test]
-fn one_raise_all_range_with_river() {
+fn one_raise_all_range_with_river() -> Result<(), String> {
     let card_config = CardConfig {
         range: [Range::ones(); 2],
         flop: flop_from_str("Td9d6h").unwrap(),
@@ -378,7 +386,7 @@ fn one_raise_all_range_with_river() {
     assert!((ev_oop - 37.5).abs() < 1e-4);
     assert!((ev_ip - 22.5).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -391,7 +399,7 @@ fn one_raise_all_range_with_river() {
     assert!((ev_oop - 30.0).abs() < 1e-4);
     assert!((ev_ip - 30.0).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     assert!(game.is_terminal_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -406,7 +414,7 @@ fn one_raise_all_range_with_river() {
     assert!((ev_ip - 30.0).abs() < 1e-4);
 
     game.back_to_root();
-    game.play(1);
+    game.play(1)?;
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
     let weights_ip = game.normalized_weights(1);
@@ -419,7 +427,7 @@ fn one_raise_all_range_with_river() {
     assert!((ev_oop - 75.0).abs() < 1e-4);
     assert!((ev_ip - 15.0).abs() < 1e-4);
 
-    game.play(0);
+    game.play(0)?;
     assert!(game.is_terminal_node());
     game.cache_normalized_weights();
     let weights_oop = game.normalized_weights(0);
@@ -433,10 +441,12 @@ fn one_raise_all_range_with_river() {
     assert!((equity_ip - 0.5).abs() < 1e-5);
     assert!((ev_oop - 90.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
+
+    Ok(())
 }
 
 #[test]
-fn always_win() {
+fn always_win() -> Result<(), String> {
     // be careful for straight flushes
     let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
     let card_config = CardConfig {
@@ -469,16 +479,16 @@ fn always_win() {
     assert!((ev_oop - 60.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
 
-    game.play(0);
-    game.play(0);
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_terminal_node());
 
     game.cache_normalized_weights();
@@ -492,10 +502,12 @@ fn always_win() {
     assert!((equity_ip - 0.0).abs() < 1e-5);
     assert!((ev_oop - 60.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
+
+    Ok(())
 }
 
 #[test]
-fn always_win_raked() {
+fn always_win_raked() -> Result<(), String> {
     // be careful for straight flushes
     let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
     let card_config = CardConfig {
@@ -526,16 +538,16 @@ fn always_win_raked() {
     assert!((ev_oop - 57.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
 
-    game.play(0);
-    game.play(0);
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_terminal_node());
 
     game.cache_normalized_weights();
@@ -545,6 +557,8 @@ fn always_win_raked() {
     let ev_ip = compute_average(&game.expected_values(1), weights_ip);
     assert!((ev_oop - 57.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
+
+    Ok(())
 }
 
 #[test]
@@ -703,7 +717,7 @@ fn no_assignment() {
 }
 
 #[test]
-fn remove_lines() {
+fn remove_lines() -> Result<(), String> {
     use crate::bet_size::BetSizeOptions;
     let card_config = CardConfig {
         range: ["TT+,AKo,AQs+".parse().unwrap(), "AA".parse().unwrap()],
@@ -753,28 +767,28 @@ fn remove_lines() {
     game.allocate_memory(false);
 
     // check that the turn line is removed
-    game.apply_history(&[0, 0, 2]);
+    game.apply_history(&[0, 0, 2])?;
     assert_eq!(game.available_actions(), vec![Action::Bet(30)]);
 
     // check that other turn lines are correct
-    game.apply_history(&[0, 0, 3]);
+    game.apply_history(&[0, 0, 3])?;
     assert_eq!(
         game.available_actions(),
         vec![Action::Check, Action::Bet(30)]
     );
 
     // check that the river line is removed
-    game.apply_history(&[0, 0, 2, 0, 1, 3]);
+    game.apply_history(&[0, 0, 2, 0, 1, 3])?;
     assert_eq!(game.available_actions(), vec![Action::Check]);
 
     // check that other river lines are correct
-    game.apply_history(&[0, 0, 2, 0, 1, 4]);
+    game.apply_history(&[0, 0, 2, 0, 1, 4])?;
     assert_eq!(
         game.available_actions(),
         vec![Action::Check, Action::Bet(60)]
     );
 
-    game.apply_history(&[0, 0, 3, 1, 1, 4]);
+    game.apply_history(&[0, 0, 3, 1, 1, 4])?;
     assert_eq!(
         game.available_actions(),
         vec![Action::Check, Action::Bet(60)]
@@ -782,10 +796,11 @@ fn remove_lines() {
 
     // check that `solve()` does not crash
     solve(&mut game, 10, 0.01, false);
+    Ok(())
 }
 
 #[test]
-fn isomorphism_monotone() {
+fn isomorphism_monotone() -> Result<(), String> {
     let oop_range = "88+,A8s+,A5s-A2s:0.5,AJo+,ATo:0.75,K9s+,KQo,KJo:0.75,KTo:0.25,Q9s+,QJo:0.5,J8s+,JTo:0.25,T8s+,T7s:0.45,97s+,96s:0.45,87s,86s:0.75,85s:0.45,75s+:0.75,74s:0.45,65s:0.75,64s:0.5,63s:0.45,54s:0.75,53s:0.5,52s:0.45,43s:0.5,42s:0.45,32s:0.45";
     let ip_range = "AA:0.25,99-22,AJs-A2s,AQo-A8o,K2s+,K9o+,Q2s+,Q9o+,J6s+,J9o+,T6s+,T9o,96s+,95s:0.5,98o,86s+,85s:0.5,75s+,74s:0.5,64s+,63s:0.5,54s,53s:0.5,43s";
 
@@ -809,8 +824,9 @@ fn isomorphism_monotone() {
 
     let mut check = |history: &[usize],
                      expected_turn_swap: Option<u8>,
-                     expected_river_swap: Option<(u8, u8)>| {
-        game.apply_history(history);
+                     expected_river_swap: Option<(u8, u8)>|
+     -> Result<(), String> {
+        game.apply_history(history)?;
         game.cache_normalized_weights();
         let weights = game.normalized_weights(0);
         let ev = game.expected_values(0);
@@ -819,36 +835,38 @@ fn isomorphism_monotone() {
         });
         assert_eq!(game.turn_swap, expected_turn_swap);
         assert_eq!(game.river_swap, expected_river_swap);
+        Ok(())
     };
 
-    check(&[0, 0, 4], None, None);
-    check(&[0, 0, 5], Some(1), None);
-    check(&[0, 0, 6], None, None);
-    check(&[0, 0, 7], Some(3), None);
+    check(&[0, 0, 4], None, None)?;
+    check(&[0, 0, 5], Some(1), None)?;
+    check(&[0, 0, 6], None, None)?;
+    check(&[0, 0, 7], Some(3), None)?;
 
-    check(&[0, 0, 4, 0, 0, 8], None, None);
-    check(&[0, 0, 4, 0, 0, 9], None, None);
-    check(&[0, 0, 4, 0, 0, 10], None, None);
-    check(&[0, 0, 4, 0, 0, 11], None, Some((0, 3)));
+    check(&[0, 0, 4, 0, 0, 8], None, None)?;
+    check(&[0, 0, 4, 0, 0, 9], None, None)?;
+    check(&[0, 0, 4, 0, 0, 10], None, None)?;
+    check(&[0, 0, 4, 0, 0, 11], None, Some((0, 3)))?;
 
-    check(&[0, 0, 5, 0, 0, 8], Some(1), None);
-    check(&[0, 0, 5, 0, 0, 9], Some(1), None);
-    check(&[0, 0, 5, 0, 0, 10], Some(1), None);
-    check(&[0, 0, 5, 0, 0, 11], Some(1), Some((1, 3)));
+    check(&[0, 0, 5, 0, 0, 8], Some(1), None)?;
+    check(&[0, 0, 5, 0, 0, 9], Some(1), None)?;
+    check(&[0, 0, 5, 0, 0, 10], Some(1), None)?;
+    check(&[0, 0, 5, 0, 0, 11], Some(1), Some((1, 3)))?;
 
-    check(&[0, 0, 6, 0, 0, 8], None, None);
-    check(&[0, 0, 6, 0, 0, 9], None, Some((2, 1)));
-    check(&[0, 0, 6, 0, 0, 10], None, None);
-    check(&[0, 0, 6, 0, 0, 11], None, Some((2, 3)));
+    check(&[0, 0, 6, 0, 0, 8], None, None)?;
+    check(&[0, 0, 6, 0, 0, 9], None, Some((2, 1)))?;
+    check(&[0, 0, 6, 0, 0, 10], None, None)?;
+    check(&[0, 0, 6, 0, 0, 11], None, Some((2, 3)))?;
 
-    check(&[0, 0, 7, 0, 0, 8], Some(3), Some((3, 1)));
-    check(&[0, 0, 7, 0, 0, 9], Some(3), None);
-    check(&[0, 0, 7, 0, 0, 10], Some(3), None);
-    check(&[0, 0, 7, 0, 0, 11], Some(3), None);
+    check(&[0, 0, 7, 0, 0, 8], Some(3), Some((3, 1)))?;
+    check(&[0, 0, 7, 0, 0, 9], Some(3), None)?;
+    check(&[0, 0, 7, 0, 0, 10], Some(3), None)?;
+    check(&[0, 0, 7, 0, 0, 11], Some(3), None)?;
+    Ok(())
 }
 
 #[test]
-fn node_locking() {
+fn node_locking() -> Result<(), String> {
     let card_config = CardConfig {
         range: ["AsAh,QsQh".parse().unwrap(), "KsKh".parse().unwrap()],
         flop: flop_from_str("2s3h4d").unwrap(),
@@ -868,8 +886,8 @@ fn node_locking() {
     let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
 
     game.allocate_memory(false);
-    game.play(1); // all-in
-    game.lock_current_strategy(&[0.25, 0.75]); // 25% fold, 75% call
+    game.play(1)?; // all-in
+    game.lock_current_strategy(&[0.25, 0.75])?; // 25% fold, 75% call
     game.back_to_root();
 
     solve(&mut game, 1000, 0.0, false);
@@ -888,8 +906,8 @@ fn node_locking() {
     assert!((strategy_oop[3] - 1.0).abs() < 1e-3); // AA bet
 
     game.allocate_memory(false);
-    game.play(1); // all-in
-    game.lock_current_strategy(&[0.5, 0.5]); // 50% fold, 50% call
+    game.play(1)?; // all-in
+    game.lock_current_strategy(&[0.5, 0.5])?; // 50% fold, 50% call
     game.back_to_root();
 
     solve(&mut game, 1000, 0.0, false);
@@ -906,10 +924,11 @@ fn node_locking() {
     assert!((strategy_oop[1] - 0.0).abs() < 1e-3); // AA check
     assert!((strategy_oop[2] - 1.0).abs() < 1e-3); // QQ bet
     assert!((strategy_oop[3] - 1.0).abs() < 1e-3); // AA bet
+    Ok(())
 }
 
 #[test]
-fn node_locking_partial() {
+fn node_locking_partial() -> Result<(), String> {
     let card_config = CardConfig {
         range: ["AsAh,QsQh,JsJh".parse().unwrap(), "KsKh".parse().unwrap()],
         flop: flop_from_str("2s3h4d").unwrap(),
@@ -929,7 +948,7 @@ fn node_locking_partial() {
     let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
 
     game.allocate_memory(false);
-    game.lock_current_strategy(&[0.8, 0.0, 0.0, 0.2, 0.0, 0.0]); // JJ -> 80% check, 20% all-in
+    game.lock_current_strategy(&[0.8, 0.0, 0.0, 0.2, 0.0, 0.0])?; // JJ -> 80% check, 20% all-in
 
     solve(&mut game, 1000, 0.0, false);
     game.cache_normalized_weights();
@@ -948,10 +967,11 @@ fn node_locking_partial() {
     assert!((strategy_oop[3] - 0.2).abs() < 1e-3); // JJ bet
     assert!((strategy_oop[4] - 0.3).abs() < 1e-3); // QQ bet
     assert!((strategy_oop[5] - 1.0).abs() < 1e-3); // AA bet
+    Ok(())
 }
 
 #[test]
-fn node_locking_isomorphism() {
+fn node_locking_isomorphism() -> Result<(), String> {
     let card_config = CardConfig {
         range: ["AKs".parse().unwrap(), "AKs".parse().unwrap()],
         flop: flop_from_str("2c3c4c").unwrap(),
@@ -969,46 +989,47 @@ fn node_locking_isomorphism() {
     let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
 
     game.allocate_memory(false);
-    game.apply_history(&[0, 0, 15, 0, 0, 14]); // Turn: Spades, River: Hearts
-    game.lock_current_strategy(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]); // AhKh -> check
+    game.apply_history(&[0, 0, 15, 0, 0, 14])?; // Turn: Spades, River: Hearts
+    game.lock_current_strategy(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0])?; // AhKh -> check
 
     finalize(&mut game);
 
-    game.apply_history(&[0, 0, 13, 0, 0, 14]);
+    game.apply_history(&[0, 0, 13, 0, 0, 14])?;
     assert_eq!(
         game.strategy(),
         vec![0.5, 0.5, 1.0, 0.5, 0.5, 0.5, 0.0, 0.5]
     );
 
-    game.apply_history(&[0, 0, 13, 0, 0, 15]);
+    game.apply_history(&[0, 0, 13, 0, 0, 15])?;
     assert_eq!(
         game.strategy(),
         vec![0.5, 0.5, 0.5, 1.0, 0.5, 0.5, 0.5, 0.0]
     );
 
-    game.apply_history(&[0, 0, 14, 0, 0, 13]);
+    game.apply_history(&[0, 0, 14, 0, 0, 13])?;
     assert_eq!(
         game.strategy(),
         vec![0.5, 1.0, 0.5, 0.5, 0.5, 0.0, 0.5, 0.5]
     );
 
-    game.apply_history(&[0, 0, 14, 0, 0, 15]);
+    game.apply_history(&[0, 0, 14, 0, 0, 15])?;
     assert_eq!(
         game.strategy(),
         vec![0.5, 0.5, 0.5, 1.0, 0.5, 0.5, 0.5, 0.0]
     );
 
-    game.apply_history(&[0, 0, 15, 0, 0, 13]);
+    game.apply_history(&[0, 0, 15, 0, 0, 13])?;
     assert_eq!(
         game.strategy(),
         vec![0.5, 1.0, 0.5, 0.5, 0.5, 0.0, 0.5, 0.5]
     );
 
-    game.apply_history(&[0, 0, 15, 0, 0, 14]);
+    game.apply_history(&[0, 0, 15, 0, 0, 14])?;
     assert_eq!(
         game.strategy(),
         vec![0.5, 0.5, 1.0, 0.5, 0.5, 0.5, 0.0, 0.5]
     );
+    Ok(())
 }
 
 #[test]
@@ -1066,7 +1087,7 @@ fn set_bunching_effect() {
 }
 
 #[test]
-fn set_bunching_effect_always_win() {
+fn set_bunching_effect_always_win() -> Result<(), String> {
     let flop = flop_from_str("AcAdKh").unwrap();
     let lose_range_str = "KK-22,K9-K2,Q8-Q2,J8-J2,T8-T2,92+,82+,72+,62+";
 
@@ -1116,16 +1137,16 @@ fn set_bunching_effect_always_win() {
     assert!((ev_oop - 60.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
 
-    game.play(0);
-    game.play(0);
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_chance_node());
-    game.play(usize::MAX);
-    game.play(0);
-    game.play(0);
+    game.play(usize::MAX)?;
+    game.play(0)?;
+    game.play(0)?;
     assert!(game.is_terminal_node());
 
     game.cache_normalized_weights();
@@ -1139,6 +1160,7 @@ fn set_bunching_effect_always_win() {
     assert!((equity_ip - 0.0).abs() < 1e-5);
     assert!((ev_oop - 60.0).abs() < 1e-4);
     assert!((ev_ip - 0.0).abs() < 1e-4);
+    Ok(())
 }
 
 #[test]
@@ -1247,4 +1269,212 @@ fn solve_pio_preset_raked() {
     // verified by PioSOLVER Free (but not theoretically guaranteed to be the same)
     assert!((root_ev_oop - 95.57).abs() < 0.2);
     assert!((root_ev_ip - 66.98).abs() < 0.2);
+}
+
+#[test]
+fn serialize_config() {
+    let resources_dir = Path::new("resources");
+    let config_path = resources_dir.join("configs").join("turn_config.json");
+    let json_contents =
+        std::fs::read_to_string(&config_path).expect("Couldn't find config.json in resources");
+
+    let config = serde_json::from_str(&json_contents);
+    assert!(config.is_ok());
+    let config = config.unwrap();
+    let game = PostFlopGame::game_from_configs_json(&config);
+    assert!(game.is_ok());
+    let game = game.unwrap();
+
+    let card_config = game.card_config();
+    assert_eq!(card_config.flop, flop_from_str("6h9dTd").unwrap());
+    assert_eq!(card_config.turn, card_from_str("Qc").unwrap());
+    assert_eq!(card_config.river, NOT_DEALT);
+
+    let tree_config = game.tree_config();
+    assert_eq!(tree_config.initial_state, BoardState::Turn);
+    assert_eq!(tree_config.effective_stack, 900);
+    assert_eq!(tree_config.starting_pot, 200);
+
+    let sizes = BetSizeOptions::try_from(("60%,e,a", "2.5x")).unwrap();
+    assert_eq!(tree_config.flop_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.turn_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.river_bet_sizes, [sizes.clone(), sizes.clone()]);
+
+    let donks = DonkSizeOptions::try_from("50%").ok();
+    assert_eq!(tree_config.turn_donk_sizes, None);
+    assert_eq!(tree_config.river_donk_sizes, donks);
+
+    assert_eq!(tree_config.add_allin_threshold, 1.5);
+    assert_eq!(tree_config.force_allin_threshold, 0.15);
+    assert_eq!(tree_config.merging_threshold, 0.1);
+
+    assert_eq!(tree_config.rake_cap, 0.0);
+    assert_eq!(tree_config.rake_rate, 0.0);
+}
+
+#[test]
+fn deserialize_config_defaults() {
+    // This should deserialze
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        },
+        \"added_lines\": [],
+        \"removed_lines\": [[\"Check\", \"Check\"]]
+    }";
+
+    let result = deserialize_configs_from_str(config_contents);
+    assert!(result.is_ok());
+    let (card_config, tree_config, added, removed) = result.unwrap();
+
+    assert_eq!(card_config.flop, flop_from_str("6h9dTd").unwrap());
+    assert_eq!(card_config.turn, NOT_DEALT);
+    assert_eq!(card_config.river, NOT_DEALT);
+
+    assert_eq!(tree_config.initial_state, BoardState::Flop);
+    assert_eq!(tree_config.effective_stack, 500);
+    assert_eq!(tree_config.starting_pot, 10);
+
+    let sizes = BetSizeOptions::try_from(("", "")).unwrap();
+    assert_eq!(tree_config.flop_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.turn_bet_sizes, [sizes.clone(), sizes.clone()]);
+    assert_eq!(tree_config.river_bet_sizes, [sizes.clone(), sizes.clone()]);
+
+    assert_eq!(tree_config.turn_donk_sizes, None);
+    assert_eq!(tree_config.river_donk_sizes, None);
+
+    assert_eq!(tree_config.add_allin_threshold, 2.5);
+    assert_eq!(tree_config.force_allin_threshold, 0.2);
+    assert_eq!(tree_config.merging_threshold, 0.1);
+
+    assert_eq!(tree_config.rake_cap, 0.0);
+    assert_eq!(tree_config.rake_rate, 0.0);
+
+    assert!(added.is_empty());
+    assert_eq!(removed, vec![vec![Action::Check, Action::Check]]);
+
+    // This should not deserialize:
+    let config_contents = "{}";
+    assert!(deserialize_configs_from_str(config_contents).is_err());
+
+    // This should not deserialize:
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        }
+    }";
+    assert!(deserialize_configs_from_str(config_contents).is_err());
+
+    // This should not deserialize:
+    let config_contents = "
+    {
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(deserialize_configs_from_str(config_contents).is_err());
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without flops should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\"
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without ranges should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+            \"effective_stack\": 500
+        }
+    }";
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without precisely two ranges should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10,
+        }
+    }";
+
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without effective_stack should not deserialize"
+    );
+
+    let config_contents = "
+    {
+        \"card_config\": {
+            \"flop\": \"6h9dTd\",
+            \"range\": [
+            \"66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s\",
+            \"QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+\"
+            ]
+        },
+        \"tree_config\": {
+            \"starting_pot\": 10
+        }
+    }";
+
+    assert!(
+        deserialize_configs_from_str(config_contents).is_err(),
+        "Configs without starting_pot should not deserialize"
+    );
 }

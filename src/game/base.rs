@@ -68,7 +68,7 @@ impl Game for PostFlopGame {
     fn set_solved(&mut self) {
         self.state = State::Solved;
         let history = self.action_history.clone();
-        self.apply_history(&history);
+        self.apply_history(&history).unwrap();
     }
 
     #[inline]
@@ -1459,5 +1459,33 @@ impl PostFlopGame {
 
     pub fn get_state(&self) -> &State {
         &self.state
+    }
+
+    /// This is a temporary function that is _not_ guaranteed to be supported in
+    /// future versions. It returns a JSON object with a game's `TreeConfig` and
+    /// `CardConfig`.
+    pub fn configs_as_json(&self) -> Result<serde_json::Value, String> {
+        serialize_configs_to_json(
+            self.card_config(),
+            self.tree_config(),
+            self.added_lines(),
+            self.removed_lines(),
+        )
+    }
+
+    pub fn game_from_configs_json(
+        configs_json: &serde_json::Value,
+    ) -> Result<PostFlopGame, String> {
+        let (card_config, tree_config, added, removed) =
+            deserialize_configs_from_json(configs_json)?;
+        let mut action_tree = ActionTree::new(tree_config)?;
+        for line in added {
+            action_tree.add_line(&line)?;
+        }
+        for line in removed {
+            action_tree.remove_line(&line)?;
+        }
+
+        PostFlopGame::with_config(card_config, action_tree)
     }
 }

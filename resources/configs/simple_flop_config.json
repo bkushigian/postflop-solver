@@ -1,0 +1,55 @@
+{
+  "card_config": {
+    "flop": "6h9dTd",
+    "range": [
+      "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s",
+      "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+"
+    ]
+  },
+  "tree_config": {
+    "add_allin_threshold": 1.5,
+    "starting_pot": 25,
+    "effective_stack": 975,
+    "flop_bet_sizes": [
+      {
+        "bets": "",
+        "raises": "40%"
+      },
+      {
+        "bets": "33%",
+        "raises": "40%"
+      }
+    ],
+    "turn_bet_sizes": [
+      {
+        "bets": "60%,e,a",
+        "raises": "40%"
+      },
+      {
+        "bets": "60%, 125%,e,a",
+        "raises": "40%"
+      }
+    ],
+    "turn_donk_sizes": {
+      "donks": "30%"
+    },
+    "river_bet_sizes": [
+      {
+        "bets": "60%, 125%,e,a",
+        "raises": "40%"
+      },
+      {
+        "bets": "60%,e,a",
+        "raises": "40%"
+      }
+    ],
+    "river_donk_sizes": {
+      "donks": "50%"
+    },
+    "force_allin_threshold": 0.15,
+    "initial_state": "Flop",
+    "merging_threshold": 0.1,
+    "rake_cap": 0.0,
+    "rake_rate": 0.0
+  }
+}
