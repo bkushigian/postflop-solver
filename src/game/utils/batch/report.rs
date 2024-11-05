@@ -1,10 +1,14 @@
 use std::{
+    collections::HashMap,
     fmt::Display,
     fs::{create_dir, File},
     io::Write,
 };
 
-use crate::{compute_average, game::utils::flop_helper::flop_to_string, Action, PostFlopGame};
+use crate::{
+    compute_average, game::utils::flop_helper::flop_to_string, Action, ActionTree, PostFlopGame,
+    TreeConfig,
+};
 
 /// Returns the player's equity, EV, and EQR (in that order)
 /// Equity and EQR are float values from 0-100 (percentages)
@@ -141,40 +145,121 @@ impl Display for AggRow {
     }
 }
 
+// NOTE: We could save some time/space avoiding the enumeration of all lines,
+//       but this time/space is dwarfed by the resouces actually needed to generate the report
+pub fn generate_all_lines(config: TreeConfig) -> Result<Vec<Vec<Action>>, String> {
+    let mut all_actions = ActionTree::new(config)
+        .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
+
+    let mut all_lines = Vec::new();
+    generate_all_lines_rec(&mut all_actions, &mut all_lines, Vec::new())?;
+
+    Ok(all_lines)
+}
+
+fn generate_all_lines_rec(
+    all_actions: &mut ActionTree,
+    lines: &mut Vec<Vec<Action>>,
+    current_line: Vec<Action>,
+) -> Result<(), String> {
+    if all_actions.is_terminal_node() {
+        lines.push(current_line);
+        return Ok(());
+    }
+
+    let history = all_actions.history().to_owned();
+
+    for action in all_actions.available_actions().to_owned() {
+        all_actions.play(action)?;
+
+        // TODO This is assuming only flop reports
+        // If next node is chance, skip this
+        if all_actions.is_chance_node() {
+            let mut new_line = current_line.clone();
+            new_line.push(action);
+
+            generate_all_lines_rec(all_actions, lines, new_line)?;
+        }
+
+        all_actions.back_to_root();
+        all_actions.apply_history(&history)?;
+    }
+
+    Ok(())
+}
+
 /// Tree structure for computing aggregate reports
 /// The strucutre mirrors the action tree of the pertinent game
 /// Example use
 /// TODO
 pub struct AggActionTree {
     prev_actions: Vec<Action>,
-    avail_actions: Vec<Action>,
-    // NOTE: |child_trees| <= |avail_actions|
+    available_actions: Vec<Action>,
+    // NOTE: |child_trees| <= |available_actions|
     // Because no child is created for terminating nodes
-    // Use non_terminating_avail_actions to get corresponding list
+    // Use non_terminating_available_actions to get corresponding list
     // of actions taken to reach child trees
-    child_trees: Vec<AggActionTree>,
+    child_trees: HashMap<Action, AggActionTree>,
     data: Vec<AggRow>,
 }
 
 impl AggActionTree {
-    pub fn init_root() -> AggActionTree {
-        Self::init(Vec::new(), Vec::new())
+    // NOTE: We take ownership of `all_actions` to ensure that
+    // TODO: Unclear if this should take slices or vecs. Slices of slices are weird and hard to convert to from vec of vec
+    pub fn init_root(lines: Vec<Vec<Action>>, config: TreeConfig) -> Result<Self, String> {
+        let mut all_actions = ActionTree::new(config)
+            .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
+
+        let mut root = Self::init(Vec::new(), Vec::new());
+
+        for line in lines {
+            let mut current_node = &mut root;
+
+            all_actions.back_to_root();
+
+            for (i, &action) in line.iter().enumerate() {
+                all_actions
+                    .play(action)
+                    .map_err(|e| format!("Invalid action sequence: {line:?}. Cannot perform action {action:?} at index {i}.\nCaused by: {e}"))?;
+
+                let available_actions = all_actions.available_actions().to_vec();
+
+                // Add child node if it doesn't exist, and set current node to child node
+                current_node = current_node.child_or_add(action, available_actions);
+            }
+        }
+
+        Ok(root)
     }
 
-    fn init(prev_actions: Vec<Action>, avail_actions: Vec<Action>) -> AggActionTree {
+    fn init(prev_actions: Vec<Action>, available_actions: Vec<Action>) -> Self {
         AggActionTree {
             prev_actions,
-            avail_actions,
-            child_trees: Vec::new(),
+            available_actions: available_actions,
+            child_trees: HashMap::new(),
             data: Vec::new(),
         }
+    }
+
+    // Create the child node if it doesn't exist
+    // Then, return the child node
+    fn child_or_add(
+        &mut self,
+        action: Action,
+        available_actions: Vec<Action>,
+    ) -> &mut AggActionTree {
+        self.child_trees.entry(action).or_insert_with(|| {
+            let mut new_prev_actions = self.prev_actions.clone();
+            new_prev_actions.push(action);
+            AggActionTree::init(new_prev_actions, available_actions)
+        })
     }
 
     // current_dir = dir that report should be written to
     pub fn write(&self, current_dir: &str, report_file_name: &str) -> std::io::Result<()> {
         // Write report
         let mut f = File::create_new(format!("{}/{}", current_dir, report_file_name))?;
-        writeln!(f, "{}", report_header(&self.avail_actions))?;
+        writeln!(f, "{}", report_header(&self.available_actions))?;
         for row in &self.data {
             writeln!(f, "{}", row)?;
         }
@@ -191,18 +276,14 @@ impl AggActionTree {
     ) -> std::io::Result<()> {
         self.write(current_dir, report_file_name)?;
 
-        for (child, action) in self
-            .child_trees
-            .iter()
-            .zip(self.non_terminating_avail_actions().iter())
-        {
+        for (&action, child) in &self.child_trees {
             create_dir(format!(
                 "{}/{}",
                 current_dir,
-                folder_name_from_action(*action)
+                folder_name_from_action(action)
             ))?;
             child.write_self_and_children(
-                format!("{}/{}", current_dir, folder_name_from_action(*action)).as_str(),
+                format!("{}/{}", current_dir, folder_name_from_action(action)).as_str(),
                 report_file_name,
             )?;
         }
@@ -210,10 +291,8 @@ impl AggActionTree {
         Ok(())
     }
 
-    pub fn update(&mut self, game: &mut PostFlopGame, &flop: &[u8; 3]) {
+    pub fn update_report_for_game(&mut self, game: &mut PostFlopGame, &flop: &[u8; 3]) {
         game.cache_normalized_weights();
-
-        self.avail_actions = game.available_actions();
 
         // Compute statistics
         let (oop_equity, oop_ev, oop_eqr) = get_player_stats(&game, 0);
@@ -232,38 +311,24 @@ impl AggActionTree {
 
         let history = game.history().to_owned();
 
-        let mut child_tree_index = 0;
-        for (i, action) in self.avail_actions.iter().enumerate() {
-            // Skip terminating actions (e.g. Call)
-            if is_terminating_action(*action, self.current_player()) {
-                continue;
-            }
+        for (&action, child_tree) in &mut self.child_trees {
+            let action_index = game
+                .available_actions()
+                .iter()
+                .position(|&a| a == action)
+                .expect("Input PostFlopGame does not match TreeConfig from initialization.");
 
-            let mut new_prev_actions = self.prev_actions.clone();
-            new_prev_actions.push(*action);
+            game.play(action_index);
 
-            game.play(i);
-
-            // Initialize child tree if it doesn't exist
-            if child_tree_index >= self.child_trees.len() {
-                self.child_trees.push(AggActionTree::init(
-                    new_prev_actions,
-                    game.available_actions(),
-                ));
-            }
-
-            let child_tree = &mut self.child_trees[child_tree_index];
-            child_tree.update(game, &flop);
+            child_tree.update_report_for_game(game, &flop);
 
             game.back_to_root();
             game.apply_history(history.as_slice());
-
-            child_tree_index += 1;
         }
     }
 
     pub fn print(&self) {
-        println!("{}", report_header(&self.avail_actions));
+        println!("{}", report_header(&self.available_actions));
         for row in &self.data {
             println!("{}", row)
         }
@@ -273,7 +338,7 @@ impl AggActionTree {
         println!("Line: {:?}", self.prev_actions);
         self.print();
         println!("");
-        for tree in &self.child_trees {
+        for (_, tree) in &self.child_trees {
             tree.print_self_and_children();
         }
     }
@@ -282,15 +347,15 @@ impl AggActionTree {
         self.prev_actions.len() % 2
     }
 
-    pub fn non_terminating_avail_actions(&self) -> Vec<Action> {
-        self.avail_actions
+    pub fn non_terminating_available_actions(&self) -> Vec<Action> {
+        self.available_actions
             .iter()
             .filter(|&&action| !is_terminating_action(action, self.current_player()))
             .copied()
             .collect()
     }
 
-    pub fn avail_actions(&self) -> Vec<Action> {
-        self.avail_actions.clone()
+    pub fn available_actions(&self) -> Vec<Action> {
+        self.available_actions.clone()
     }
 }
