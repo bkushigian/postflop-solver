@@ -252,10 +252,11 @@ pub fn textured_flops_from_list(texture: Texture, flop_list: Vec<[Card; 3]>) -> 
         .collect()
 }
 
-pub fn flop_to_string(flop: &[u8; 3]) -> String {
-    flop.iter()
+pub fn flop_to_string(flop: &[u8; 3]) -> Result<String, String> {
+    Ok(flop
+        .iter()
         .rev()
-        .map(|card| card_to_string(*card).unwrap())
-        .collect::<Vec<String>>()
-        .join("")
+        .map(|card| card_to_string(*card))
+        .collect::<Result<Vec<String>, String>>()?
+        .join(""))
 }
