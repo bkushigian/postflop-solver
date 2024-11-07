@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    compute_average, game::utils::flop_helper::flop_to_string, Action, ActionTree, PostFlopGame,
-    TreeConfig,
+    card_to_string, compute_average, game::utils::flop_helper::flop_to_string, Action, ActionTree,
+    PostFlopGame, TreeConfig,
 };
 
 /// Returns the player's equity, EV, and EQR (in that order)
@@ -42,25 +42,31 @@ fn get_action_percentages(game: &PostFlopGame) -> Vec<f32> {
 // NOTE: Since this mutates the game, it un-caches weights
 fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
     let actions = game.available_actions();
+    let history = game.history().to_owned();
+    println!("----------------------------------------------------------");
+    println!("{actions:?}");
+    println!("{history:?}");
     (0..actions.len())
         .map(|action_index| {
             let player = game.current_player();
-            let history = game.history().to_owned();
+
             game.play(action_index);
             game.cache_normalized_weights();
 
             let evs = game.expected_values(player);
-            let average_ev = evs.iter().sum::<f32>() / evs.len() as f32;
+            let weights = game.normalized_weights(player);
+            let average_ev = compute_average(&evs, &weights);
+            println!("{evs:?}");
 
             game.back_to_root();
-            game.apply_history(history.as_slice());
+            game.apply_history(&history);
 
             average_ev
         })
         .collect()
 }
 
-fn is_terminating_action(action: Action, player: usize) -> bool {
+fn is_street_terminating_action(action: Action, player: usize) -> bool {
     match action {
         Action::AllIn(_) => false,
         Action::Bet(_) => false,
@@ -95,7 +101,7 @@ fn fmt_floats(floats: &[f32], formatter: &mut std::fmt::Formatter<'_>) -> std::f
 
 fn report_header(actions: &Vec<Action>) -> String {
     format!(
-        "Flop,IP Eq,IP EV,IP EQR,OOP Eq,OOP EV,OOP EQR,{}",
+        "Flop,Turn,River,IP Eq,IP EV,IP EQR,OOP Eq,OOP EV,OOP EQR,{}",
         // Title for likelihood & EV per action
         actions
             .iter()
@@ -116,7 +122,9 @@ fn report_header(actions: &Vec<Action>) -> String {
 /// actions -- list of action likelihoods (0-100), corresponding to the list of action from the owning AggActionTree
 /// action_evs -- expected value (in chips) resulting from each action
 pub struct AggRow {
-    flop: [u8; 3],
+    flop: [u8; 3], // could also have turn/river here
+    turn: Option<u8>,
+    river: Option<u8>,
     ip_equity: f32,
     ip_ev: f32,
     ip_eqr: f32,
@@ -137,10 +145,29 @@ impl Display for AggRow {
             self.oop_ev,
             self.oop_eqr,
         ];
-        all_stats.append(&mut self.actions.clone());
-        all_stats.append(&mut self.action_evs.clone());
+        for (&action, &ev) in self.actions.iter().zip(self.action_evs.iter()) {
+            all_stats.push(action);
+            all_stats.push(ev);
+        }
 
-        write!(formatter, "{},", flop_to_string(&self.flop))?;
+        // Write flop
+        write!(
+            formatter,
+            "{},",
+            flop_to_string(&self.flop)
+                .expect(format!("Row contains invalid flop cards: {:?}", &self.flop).as_str()),
+        )?;
+
+        // Write turn and river
+        let optional_card_to_string = |&opt| match opt {
+            Some(card) => {
+                card_to_string(card).expect(format!("Row contains invalid card: {card}").as_str())
+            }
+            None => String::from(""),
+        };
+        write!(formatter, "{},", optional_card_to_string(&self.turn))?;
+        write!(formatter, "{},", optional_card_to_string(&self.river))?;
+
         fmt_floats(&all_stats, formatter)
     }
 }
@@ -148,41 +175,34 @@ impl Display for AggRow {
 // NOTE: We could save some time/space avoiding the enumeration of all lines,
 //       but this time/space is dwarfed by the resouces actually needed to generate the report
 pub fn generate_all_lines(config: TreeConfig) -> Result<Vec<Vec<Action>>, String> {
-    let mut all_actions = ActionTree::new(config)
+    let mut action_tree = ActionTree::new(config)
         .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
 
     let mut all_lines = Vec::new();
-    generate_all_lines_rec(&mut all_actions, &mut all_lines, Vec::new())?;
+    generate_all_lines_rec(&mut action_tree, &mut all_lines)?;
 
     Ok(all_lines)
 }
 
 fn generate_all_lines_rec(
-    all_actions: &mut ActionTree,
+    action_tree: &mut ActionTree,
     lines: &mut Vec<Vec<Action>>,
-    current_line: Vec<Action>,
 ) -> Result<(), String> {
-    if all_actions.is_terminal_node() {
-        lines.push(current_line);
+    // NOTE: history does not include chance nodes
+    let history = action_tree.history().to_owned();
+
+    if action_tree.is_terminal_node() {
+        lines.push(history);
         return Ok(());
     }
 
-    let history = all_actions.history().to_owned();
+    for action in action_tree.available_actions().to_owned() {
+        action_tree.play(action)?;
 
-    for action in all_actions.available_actions().to_owned() {
-        all_actions.play(action)?;
+        generate_all_lines_rec(action_tree, lines)?;
 
-        // TODO This is assuming only flop reports
-        // If next node is chance, skip this
-        if all_actions.is_chance_node() {
-            let mut new_line = current_line.clone();
-            new_line.push(action);
-
-            generate_all_lines_rec(all_actions, lines, new_line)?;
-        }
-
-        all_actions.back_to_root();
-        all_actions.apply_history(&history)?;
+        action_tree.back_to_root();
+        action_tree.apply_history(&history)?;
     }
 
     Ok(())
@@ -193,21 +213,25 @@ fn generate_all_lines_rec(
 /// Example use
 /// TODO
 pub struct AggActionTree {
+    // Bet(20), Raise(50), Call
+    // Bet(20), Call
+    // Check, Check, Chance(3), Check
     prev_actions: Vec<Action>,
     available_actions: Vec<Action>,
     // NOTE: |child_trees| <= |available_actions|
     // Because no child is created for terminating nodes
     // Use non_terminating_available_actions to get corresponding list
     // of actions taken to reach child trees
+    // NOTE/TODO: Chance nodes should NOT exist in here, b/c they're essentially encoded in AggRow
     child_trees: HashMap<Action, AggActionTree>,
-    data: Vec<AggRow>,
+    data: Vec<AggRow>, // Can make this an option (for street-terminating actions)
 }
 
 impl AggActionTree {
-    // NOTE: We take ownership of `all_actions` to ensure that
     // TODO: Unclear if this should take slices or vecs. Slices of slices are weird and hard to convert to from vec of vec
+    // TODO: for turns/rivers, lines should not include chance nodes (or at least they're stripped out)
     pub fn init_root(lines: Vec<Vec<Action>>, config: TreeConfig) -> Result<Self, String> {
-        let mut all_actions = ActionTree::new(config)
+        let mut action_tree = ActionTree::new(config)
             .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
 
         let mut root = Self::init(Vec::new(), Vec::new());
@@ -215,14 +239,14 @@ impl AggActionTree {
         for line in lines {
             let mut current_node = &mut root;
 
-            all_actions.back_to_root();
+            action_tree.back_to_root();
 
             for (i, &action) in line.iter().enumerate() {
-                all_actions
+                action_tree
                     .play(action)
                     .map_err(|e| format!("Invalid action sequence: {line:?}. Cannot perform action {action:?} at index {i}.\nCaused by: {e}"))?;
 
-                let available_actions = all_actions.available_actions().to_vec();
+                let available_actions = action_tree.available_actions().to_vec();
 
                 // Add child node if it doesn't exist, and set current node to child node
                 current_node = current_node.child_or_add(action, available_actions);
@@ -291,39 +315,67 @@ impl AggActionTree {
         Ok(())
     }
 
-    pub fn update_report_for_game(&mut self, game: &mut PostFlopGame, &flop: &[u8; 3]) {
-        game.cache_normalized_weights();
-
-        // Compute statistics
-        let (oop_equity, oop_ev, oop_eqr) = get_player_stats(&game, 0);
-        let (ip_equity, ip_ev, ip_eqr) = get_player_stats(&game, 1);
-        self.data.push(AggRow {
-            flop,
-            ip_equity,
-            ip_ev,
-            ip_eqr,
-            oop_equity,
-            oop_ev,
-            oop_eqr,
-            actions: get_action_percentages(&game),
-            action_evs: get_action_evs(game),
-        });
-
+    pub fn update_report_for_game(&mut self, game: &mut PostFlopGame, board: &Vec<u8>) {
+        // Generally, game needs to be reverted to this history after playing any action
+        // This is necessary to process data for multiple lines over the game
         let history = game.history().to_owned();
 
-        for (&action, child_tree) in &mut self.child_trees {
-            let action_index = game
-                .available_actions()
-                .iter()
-                .position(|&a| a == action)
-                .expect("Input PostFlopGame does not match TreeConfig from initialization.");
+        if game.is_chance_node() {
+            // If we're at a chance node, call `update_report_for_game` on self for each possible chance card
+            for card in 0..52 {
+                // Don't process chance cards that are already on the board
+                if game.current_board().contains(&card) {
+                    continue;
+                }
 
-            game.play(action_index);
+                game.play(card as usize);
 
-            child_tree.update_report_for_game(game, &flop);
+                let mut new_board = board.clone();
+                new_board.push(card);
+                self.update_report_for_game(game, &new_board);
 
-            game.back_to_root();
-            game.apply_history(history.as_slice());
+                game.back_to_root();
+                game.apply_history(&history);
+            }
+        } else {
+            // Otherwise, update the data, then recursively update all child nodes
+            game.cache_normalized_weights();
+
+            // Compute statistics
+            let (oop_equity, oop_ev, oop_eqr) = get_player_stats(game, 0);
+            let (ip_equity, ip_ev, ip_eqr) = get_player_stats(game, 1);
+            self.data.push(AggRow {
+                flop: board[0..3]
+                    .try_into()
+                    .expect("board must at least have flop"),
+                turn: board.get(3).copied(),
+                river: board.get(4).copied(),
+                ip_equity,
+                ip_ev,
+                ip_eqr,
+                oop_equity,
+                oop_ev,
+                oop_eqr,
+                actions: get_action_percentages(game),
+                action_evs: get_action_evs(game),
+            });
+
+            // Update child nodes for each action
+            // NOTE: actions should only appear in the tree if the line was explicitly requested
+            for (&action, child_tree) in &mut self.child_trees {
+                let action_index = game
+                    .available_actions()
+                    .iter()
+                    .position(|&a| a == action)
+                    .expect("Input PostFlopGame does not match TreeConfig from initialization.");
+
+                game.play(action_index);
+
+                child_tree.update_report_for_game(game, board);
+
+                game.back_to_root();
+                game.apply_history(&history);
+            }
         }
     }
 
@@ -350,7 +402,7 @@ impl AggActionTree {
     pub fn non_terminating_available_actions(&self) -> Vec<Action> {
         self.available_actions
             .iter()
-            .filter(|&&action| !is_terminating_action(action, self.current_player()))
+            .filter(|&&action| !is_street_terminating_action(action, self.current_player()))
             .copied()
             .collect()
     }
