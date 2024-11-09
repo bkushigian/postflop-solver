@@ -852,6 +852,11 @@ impl PostFlopGame {
         self.total_bet_amount
     }
 
+    #[inline]
+    pub fn prev_action(&self) -> Action {
+        self.node().prev_action
+    }
+
     /// Locks the strategy of the current node.
     ///
     /// The `strategy` argument must be a slice of the length of `#(actions) * #(private hands)`.
