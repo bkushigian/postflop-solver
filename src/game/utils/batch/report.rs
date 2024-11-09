@@ -37,31 +37,49 @@ fn get_action_percentages(game: &PostFlopGame) -> Vec<f32> {
         .collect()
 }
 
+// Need game to determine cost of Action::Call
+fn get_action_cost(game: &PostFlopGame, action: Action) -> i32 {
+    match action {
+        Action::Bet(x) | Action::Raise(x) | Action::AllIn(x) => x,
+        Action::Call => {
+            let prev_action = game.prev_action();
+            // Previous action should always be a bet, raise, or allin
+            assert!(matches!(
+                prev_action,
+                Action::Bet(_) | Action::Raise(_) | Action::AllIn(_)
+            ));
+            get_action_cost(game, prev_action)
+        }
+        _ => 0,
+    }
+}
+
 // TODO is there any better way to do this?
 // I would rather not have to replay histories here b/c it is complicated and possibly slow
 // NOTE: Since this mutates the game, it un-caches weights
 fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
     let actions = game.available_actions();
     let history = game.history().to_owned();
-    println!("----------------------------------------------------------");
-    println!("{actions:?}");
-    println!("{history:?}");
+
     (0..actions.len())
         .map(|action_index| {
             let player = game.current_player();
 
+            // TODO: Do we want the likelihood of the player having the hand _before_ playing the action?
+            // This would effectively ignore the strategy w.r.t. the action being played
+
             game.play(action_index);
             game.cache_normalized_weights();
 
+            let weights = game.normalized_weights(player).to_owned();
             let evs = game.expected_values(player);
-            let weights = game.normalized_weights(player);
-            let average_ev = compute_average(&evs, &weights);
-            println!("{evs:?}");
+            let average_ev_after_action = compute_average(&evs, &weights);
 
             game.back_to_root();
             game.apply_history(&history);
 
-            average_ev
+            // Actual EV of action
+            average_ev_after_action - get_action_cost(game, actions[action_index]) as f32
         })
         .collect()
 }
