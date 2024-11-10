@@ -1,14 +1,30 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    fs::{create_dir, File},
+    fs::{self, File},
     io::Write,
+    path::Path,
 };
 
 use crate::{
     card_to_string, compute_average, game::utils::flop_helper::flop_to_string, Action, ActionTree,
     PostFlopGame, TreeConfig,
 };
+
+// TODO do we ever realistically want the Skip option?
+// TODO also, for `Error`, we may actually want to error if the directory exists at all
+//      (as opposed to what's done now, which may not error until after some reports are already written)
+/// Describes possible behaviors for writing reports to files that already exist.
+///
+/// `Skip` describes the behavior of skipping over existing report files, _not_ overwriting them when encountered.
+/// `Overwrite` describes the behavior of overwriting existing report files without erroring.
+/// `Error` describes the behavior of returning an error when an existing report is encountered.
+#[derive(Clone, Copy)]
+pub enum ExistingReportBehavior {
+    Skip,
+    Overwrite,
+    Error,
+}
 
 /// Returns the player's equity, EV, and EQR (in that order)
 /// Equity and EQR are float values from 0-100 (percentages)
@@ -19,9 +35,10 @@ fn get_player_stats(game: &PostFlopGame, player: usize) -> (f32, f32, f32) {
     let average_equity = compute_average(&equity, weights);
     let average_ev = compute_average(&ev, weights);
     (
-        100.0 * average_equity,
+        average_equity,
         average_ev,
-        100.0 * average_ev / (average_equity * game.pot() as f32),
+        // Compute EQR
+        average_ev / (average_equity * game.pot() as f32),
     )
 }
 
@@ -54,9 +71,6 @@ fn get_action_cost(game: &PostFlopGame, action: Action) -> i32 {
     }
 }
 
-// TODO is there any better way to do this?
-// I would rather not have to replay histories here b/c it is complicated and possibly slow
-// NOTE: Since this mutates the game, it un-caches weights
 fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
     let actions = game.available_actions();
     let history = game.history().to_owned();
@@ -64,9 +78,6 @@ fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
     (0..actions.len())
         .map(|action_index| {
             let player = game.current_player();
-
-            // TODO: Do we want the likelihood of the player having the hand _before_ playing the action?
-            // This would effectively ignore the strategy w.r.t. the action being played
 
             game.play(action_index);
             game.cache_normalized_weights();
@@ -82,17 +93,6 @@ fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
             average_ev_after_action - get_action_cost(game, actions[action_index]) as f32
         })
         .collect()
-}
-
-fn is_street_terminating_action(action: Action, player: usize) -> bool {
-    match action {
-        Action::AllIn(_) => false,
-        Action::Bet(_) => false,
-        Action::Raise(_) => false,
-        // Check is terminating iff current player is IP
-        Action::Check => player == 1,
-        _ => true,
-    }
 }
 
 fn folder_name_from_action(action: Action) -> String {
@@ -130,15 +130,17 @@ fn report_header(actions: &Vec<Action>) -> String {
 }
 
 /// Single row in an aggregate report
-/// flop -- describes the 3 cards of the flop
-/// ip_equity -- equity (0-100 value) of the in-position player
-/// ip_ev -- expected value (in chips) of the in-position player
-/// ip_eqr -- equity realization (0-100 value) of the in-position player
-/// oop_equity -- equity (0-100 value) of the out-of-position player
-/// oop_ev -- expected value (in chips) of the out-of-position player
-/// oop_eqr -- equity realization (0-100 value) of the out-of-position player
-/// actions -- list of action likelihoods (0-100), corresponding to the list of action from the owning AggActionTree
-/// action_evs -- expected value (in chips) resulting from each action
+/// flop: describes the 3 cards of the flop
+/// turn: optional value, describes the turn card (required if river is present)
+/// river: optional value, describes the river card
+/// ip_equity: equity (0-100 value) of the in-position player
+/// ip_ev: expected value (in chips) of the in-position player
+/// ip_eqr: equity realization (0-100 value) of the in-position player
+/// oop_equity: equity (0-100 value) of the out-of-position player
+/// oop_ev: expected value (in chips) of the out-of-position player
+/// oop_eqr: equity realization (0-100 value) of the out-of-position player
+/// actions: list of action likelihoods (0-100), corresponding to the list of action from the owning AggActionTree
+/// action_evs: expected value (in chips) resulting from each action
 pub struct AggRow {
     flop: [u8; 3], // could also have turn/river here
     turn: Option<u8>,
@@ -226,33 +228,28 @@ fn generate_all_lines_rec(
     Ok(())
 }
 
-/// Tree structure for computing aggregate reports
-/// The strucutre mirrors the action tree of the pertinent game
-/// Example use
-/// TODO
+/// Tree structure for computing aggregate reports.
+/// The strucutre mirrors the action tree of the pertinent game.
 pub struct AggActionTree {
-    // Bet(20), Raise(50), Call
-    // Bet(20), Call
-    // Check, Check, Chance(3), Check
     prev_actions: Vec<Action>,
     available_actions: Vec<Action>,
     // NOTE: |child_trees| <= |available_actions|
     // Because no child is created for terminating nodes
     // Use non_terminating_available_actions to get corresponding list
     // of actions taken to reach child trees
-    // NOTE/TODO: Chance nodes should NOT exist in here, b/c they're essentially encoded in AggRow
     child_trees: HashMap<Action, AggActionTree>,
-    data: Vec<AggRow>, // Can make this an option (for street-terminating actions)
+    data: Vec<AggRow>,
 }
 
 impl AggActionTree {
-    // TODO: Unclear if this should take slices or vecs. Slices of slices are weird and hard to convert to from vec of vec
-    // TODO: for turns/rivers, lines should not include chance nodes (or at least they're stripped out)
     pub fn init_root(lines: Vec<Vec<Action>>, config: TreeConfig) -> Result<Self, String> {
         let mut action_tree = ActionTree::new(config)
             .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
 
         let mut root = Self::init(Vec::new(), Vec::new());
+
+        // Update the available actions in the root node
+        root.available_actions = action_tree.available_actions().to_vec();
 
         for line in lines {
             let mut current_node = &mut root;
@@ -298,9 +295,28 @@ impl AggActionTree {
     }
 
     // current_dir = dir that report should be written to
-    pub fn write(&self, current_dir: &str, report_file_name: &str) -> std::io::Result<()> {
-        // Write report
-        let mut f = File::create_new(format!("{}/{}", current_dir, report_file_name))?;
+    pub fn write(
+        &self,
+        current_dir: &str,
+        report_file_name: &str,
+        existing_file_behavior: ExistingReportBehavior,
+    ) -> std::io::Result<()> {
+        let file_path = format!("{}/{}", current_dir, report_file_name);
+        let mut f = match existing_file_behavior {
+            ExistingReportBehavior::Skip => {
+                // If the file already exists, skip overwriting it
+                if Path::new(&file_path).exists() {
+                    return Ok(());
+                }
+                // If not, create the file
+                File::create(file_path)?
+            }
+            // Create the file, truncating if it exists
+            ExistingReportBehavior::Overwrite => File::create(&file_path)?,
+            // Create the file, returning an error if it already exists
+            ExistingReportBehavior::Error => File::create_new(&file_path)?,
+        };
+
         writeln!(f, "{}", report_header(&self.available_actions))?;
         for row in &self.data {
             writeln!(f, "{}", row)?;
@@ -309,24 +325,23 @@ impl AggActionTree {
         Ok(())
     }
 
-    // TODO currently using `write!`, which will not overwrite file
-    // Should allow to overwrite file with some force option
     pub fn write_self_and_children(
         &self,
         current_dir: &str,
         report_file_name: &str,
+        existing_file_behavior: ExistingReportBehavior,
     ) -> std::io::Result<()> {
-        self.write(current_dir, report_file_name)?;
+        self.write(current_dir, report_file_name, existing_file_behavior)?;
 
         for (&action, child) in &self.child_trees {
-            create_dir(format!(
-                "{}/{}",
-                current_dir,
-                folder_name_from_action(action)
-            ))?;
+            let line_dir_path = format!("{}/{}", current_dir, folder_name_from_action(action));
+            if !Path::new(&line_dir_path).exists() {
+                fs::create_dir(&line_dir_path)?;
+            }
             child.write_self_and_children(
                 format!("{}/{}", current_dir, folder_name_from_action(action)).as_str(),
                 report_file_name,
+                existing_file_behavior,
             )?;
         }
 
@@ -396,36 +411,14 @@ impl AggActionTree {
             }
         }
     }
+}
 
-    pub fn print(&self) {
-        println!("{}", report_header(&self.available_actions));
-        for row in &self.data {
-            println!("{}", row)
-        }
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    pub fn print_self_and_children(&self) {
-        println!("Line: {:?}", self.prev_actions);
-        self.print();
-        println!("");
-        for (_, tree) in &self.child_trees {
-            tree.print_self_and_children();
-        }
-    }
-
-    fn current_player(&self) -> usize {
-        self.prev_actions.len() % 2
-    }
-
-    pub fn non_terminating_available_actions(&self) -> Vec<Action> {
-        self.available_actions
-            .iter()
-            .filter(|&&action| !is_street_terminating_action(action, self.current_player()))
-            .copied()
-            .collect()
-    }
-
-    pub fn available_actions(&self) -> Vec<Action> {
-        self.available_actions.clone()
+    #[test]
+    fn test_update_report_basic_game() {
+        todo!();
     }
 }
