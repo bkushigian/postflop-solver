@@ -1,5 +1,7 @@
+use std::fs;
+
 use postflop_solver::*;
-use utils::batch::report::{generate_all_lines, AggActionTree};
+use utils::batch::report::{generate_all_lines, AggActionTree, ExistingReportBehavior};
 
 // Uncomment if reloading from previous game saves
 use utils::flop_helper::flop_to_string;
@@ -33,7 +35,10 @@ fn main() {
     };
 
     // let lines = generate_all_lines(tree_config.clone()).unwrap();
-    let lines = vec![vec![Action::Check]];
+    let lines = vec![
+        vec![Action::Check, Action::Check],
+        vec![Action::Check, Action::Bet(120)],
+    ];
 
     println!("Done generating lines");
 
@@ -82,7 +87,8 @@ fn main() {
         // .unwrap();
     }
 
+    let report_dir = "reports/turn_root";
     report_tree
-        .write_self_and_children("reports/turn_root", "report.csv")
+        .write_self_and_children(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
         .expect("Problem writing to files");
 }
