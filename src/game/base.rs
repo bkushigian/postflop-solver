@@ -2,6 +2,7 @@ use super::*;
 use crate::bunching::*;
 use crate::interface::*;
 use crate::utility::*;
+use std::collections::HashSet;
 use std::mem::{self, MaybeUninit};
 
 #[cfg(feature = "rayon")]
@@ -734,6 +735,7 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
+                    child.parent_node_index = node_index;
                     child.turn = card;
                 }
             }
@@ -752,6 +754,7 @@ impl PostFlopGame {
                     node.num_children += 1;
                     let mut child = node.children().last().unwrap().lock();
                     child.prev_action = Action::Chance(card);
+                    child.parent_node_index = node_index;
                     child.turn = node.turn;
                     child.river = card;
                 }
@@ -795,6 +798,7 @@ impl PostFlopGame {
         for (child, action) in node.children().iter().zip(action_node.actions.iter()) {
             let mut child = child.lock();
             child.prev_action = *action;
+            child.parent_node_index = node_index;
             child.turn = node.turn;
             child.river = node.river;
         }
@@ -808,6 +812,110 @@ impl PostFlopGame {
 
         info.num_storage += node.num_elements as u64;
         info.num_storage_ip += node.num_elements_ip as u64;
+    }
+
+    /// reload_and_resolve
+    ///
+    /// Reload forgotten streets and resolve to target exploitability.
+    ///
+    /// Note: This currently wraps [`Self::copy_reload_and_resolve`] which is
+    /// not as memory efficient as it could be.
+    pub fn reload_and_resolve(
+        game: &mut PostFlopGame,
+        max_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
+    ) -> Result<(), String> {
+        *game = PostFlopGame::copy_reload_and_resolve(
+            game,
+            max_iterations,
+            target_exploitability,
+            print_progress,
+        )?;
+        Ok(())
+    }
+
+    /// copy_reload_and_resolve
+    ///
+    /// Copy `game` into a new `PostFlopGame` and rebuild/resolve any forgotten
+    /// streets.
+    ///
+    /// The solver will run until either `max_iterations` iterations have passed or
+    ///
+    /// # Arguments
+    ///
+    /// * `game` - the game to copy, rebuild, and resolve
+    /// * `max_iterations` - the maximum number of iterations to run the solver for
+    /// * `target_exploitability` - target exploitability for a solution
+    /// * `print_progress` - print progress during the solve
+    pub fn copy_reload_and_resolve(
+        game: &PostFlopGame,
+        max_iterations: u32,
+        target_exploitability: f32,
+        print_progress: bool,
+    ) -> Result<PostFlopGame, String> {
+        let card_config = game.card_config.clone();
+        let action_tree = ActionTree::new(game.tree_config.clone())?;
+        let target_storage_mode = game.target_storage_mode();
+
+        let mut new_game = PostFlopGame::with_config(card_config, action_tree)?;
+        new_game.allocate_memory(game.is_compression_enabled());
+
+        // Copy data into new game
+        for (dst, src) in new_game.storage1.iter_mut().zip(&game.storage1) {
+            *dst = *src;
+        }
+        for (dst, src) in new_game.storage2.iter_mut().zip(&game.storage2) {
+            *dst = *src;
+        }
+        for (dst, src) in new_game.storage_chance.iter_mut().zip(&game.storage_chance) {
+            *dst = *src;
+        }
+        for (dst, src) in new_game.storage_ip.iter_mut().zip(&game.storage_ip) {
+            *dst = *src;
+        }
+
+        if target_storage_mode == BoardState::River {
+            return Ok(new_game);
+        }
+
+        // Nodelock and resolve
+        let num_nodes_to_lock = match target_storage_mode {
+            BoardState::River => 0,
+            BoardState::Turn => game.num_nodes_per_street[0] + game.num_nodes_per_street[1],
+            BoardState::Flop => game.num_nodes_per_street[0],
+        };
+
+        // We are about to node lock a bunch of nodes to resolve more
+        // efficiently, so we preserve which keys were already locked to the
+        // current strategy
+        let already_locked_nodes = game.locking_strategy.keys().collect::<HashSet<&usize>>();
+        for node_index in 0..num_nodes_to_lock as usize {
+            // We can't ? because this tries to lock chance nodes
+            let _ = new_game.lock_node_at_index(node_index);
+        }
+
+        crate::solve(
+            &mut new_game,
+            max_iterations,
+            target_exploitability,
+            print_progress,
+        );
+
+        // Remove node locking from resolving but retain node locking passed in
+        // with `game`. Note that we _have to maintain the invariant that a
+        // node's index is in the game's locking_strategy if and only if
+        // node.is_locked == true._ That is:
+        //
+        //      game.node_arena[node_index].is_locked <=> node_index in game.locking_strategy.keys()
+        for node_index in 0..num_nodes_to_lock as usize {
+            if !already_locked_nodes.contains(&node_index) {
+                new_game.node_arena[node_index].lock().is_locked = false;
+                new_game.locking_strategy.remove(&node_index);
+            }
+        }
+
+        Ok(new_game)
     }
 
     /// Sets the bunching effect.
@@ -1459,5 +1567,10 @@ impl PostFlopGame {
 
     pub fn get_state(&self) -> &State {
         &self.state
+    }
+
+    #[inline]
+    pub fn is_partially_solved(&self) -> bool {
+        self.state >= State::SolvedFlop
     }
 }
