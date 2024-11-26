@@ -15,8 +15,9 @@ An open-source postflop solver library written in Rust
 Documentation: https://b-inary.github.io/postflop_solver/postflop_solver/
 
 **Related repositories**
-- Web app (WASM Postflop): https://github.com/b-inary/wasm-postflop
-- Desktop app (Desktop Postflop): https://github.com/b-inary/desktop-postflop
+
+- Desktop app (Desktop Postflop): https://github.com/bkushigian/desktop-postflop (supported)
+- Web app (WASM Postflop): https://github.com/b-inary/wasm-postflop (not supported)
 
 **Note:**
 The primary purpose of this library is to serve as a backend engine for the GUI applications ([WASM Postflop] and [Desktop Postflop]).
@@ -25,7 +26,7 @@ Therefore, breaking changes are often made without version changes.
 See [CHANGES.md](CHANGES.md) for details about breaking changes.
 
 [WASM Postflop]: https://github.com/b-inary/wasm-postflop
-[Desktop Postflop]: https://github.com/b-inary/desktop-postflop
+[Desktop Postflop]: https://github.com/bkushigian/desktop-postflop
 
 ## Usage
 
@@ -43,7 +44,7 @@ You can find examples in the [examples](examples) directory.
 If you have cloned this repository, you can run the example with the following command:
 
 ```sh
-$ cargo run --release --example basic
+cargo run --release --example basic
 ```
 
 ## Implementation details
