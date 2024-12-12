@@ -1,3 +1,4 @@
+pub mod aggregation;
 mod base;
 mod evaluation;
 mod interpreter;

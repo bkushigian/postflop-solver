@@ -1,7 +1,7 @@
 use std::fs;
 
+use aggregation::{generate_all_lines, AggActionTree, ExistingReportBehavior};
 use postflop_solver::*;
-use utils::batch::report::{generate_all_lines, AggActionTree, ExistingReportBehavior};
 
 // Uncomment if reloading from previous game saves
 use utils::flop_helper::flop_to_string;
@@ -70,7 +70,7 @@ fn main() {
         )
         .unwrap();
 
-        report_tree.update_report_for_game(&mut game, &flop.into_iter().collect());
+        report_tree.update_report_for_game(&mut game);
 
         // Log progress
         //if (i + 1) % 10 == 0 {
