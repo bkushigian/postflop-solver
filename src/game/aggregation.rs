@@ -26,8 +26,15 @@ pub enum ExistingReportBehavior {
     Error,
 }
 
-/// Returns the player's equity, EV, and EQR (in that order)
-/// Equity and EQR are float values from 0-100 (percentages)
+/// Returns the player's equity, EV, and EQR (in that order).
+/// *Requires game.cache_normalized_weights() to be called beforehand.*
+/// Equity and EQR are float values in the range [0.0, 1.0].
+/// Expected Value (EV) is a float representing the weighted average EV across all hands for the player at the current spot in game.
+///
+/// # Panics
+///
+/// A panic will occur if the input game is not solved.
+/// Additionally, a panic will occur if game.cache_normalized_weights() is not called before this function.
 fn get_player_stats(game: &PostFlopGame, player: usize) -> (f32, f32, f32) {
     let equity = game.equity(player);
     let ev = game.expected_values(player);
@@ -42,7 +49,13 @@ fn get_player_stats(game: &PostFlopGame, player: usize) -> (f32, f32, f32) {
     )
 }
 
-fn get_action_percentages(game: &PostFlopGame) -> Vec<f32> {
+/// Return the action frequencies of the current player.
+///
+/// # Panics
+///
+/// A panic will occur if the input game is not solved.
+/// Additionally, a panic will occur if game.cache_normalized_weights() is not called before this function.
+fn get_action_frequencies(game: &PostFlopGame) -> Vec<f32> {
     let player = game.current_player();
     let cards = game.private_cards(player);
     let strategy = game.strategy();
@@ -101,6 +114,7 @@ fn folder_name_from_action(action: Action) -> String {
         Action::Bet(x) => format!("bet{}", x),
         Action::Raise(x) => format!("raise{}", x),
         Action::Check => "check".to_string(),
+        Action::Call => "call".to_string(),
         _ => unimplemented!("Cannot currently make folder for terminating action"),
     }
 }
@@ -151,7 +165,7 @@ pub struct AggRow {
     oop_equity: f32,
     oop_ev: f32,
     oop_eqr: f32,
-    actions: Vec<f32>,
+    action_frequencies: Vec<f32>,
     action_evs: Vec<f32>,
 }
 
@@ -165,7 +179,7 @@ impl Display for AggRow {
             self.oop_ev,
             self.oop_eqr,
         ];
-        for (&action, &ev) in self.actions.iter().zip(self.action_evs.iter()) {
+        for (&action, &ev) in self.action_frequencies.iter().zip(self.action_evs.iter()) {
             all_stats.push(action);
             all_stats.push(ev);
         }
@@ -348,7 +362,18 @@ impl AggActionTree {
         Ok(())
     }
 
-    pub fn update_report_for_game(&mut self, game: &mut PostFlopGame, board: &Vec<u8>) {
+    /// Based on the input game, updates the `AggActionTree` data at each node within each line specified at initialization.
+    ///
+    /// The input game _must_ be at the same node in the game tree as `self`.
+    /// In other words, if `root` is the root `AggActionTree` and `self = root.child_trees[a_0].child_trees[a_1]...`,
+    /// then `game.history()` must be action indexes corresponding the the action sequence `[a_0, a_1, ...]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// todo!()
+    /// ```
+    pub fn update_report_for_game(&mut self, game: &mut PostFlopGame) {
         // Generally, game needs to be reverted to this history after playing any action
         // This is necessary to process data for multiple lines over the game
         let history = game.history().to_owned();
@@ -363,9 +388,7 @@ impl AggActionTree {
 
                 game.play(card as usize);
 
-                let mut new_board = board.clone();
-                new_board.push(card);
-                self.update_report_for_game(game, &new_board);
+                self.update_report_for_game(game);
 
                 game.back_to_root();
                 game.apply_history(&history);
@@ -377,6 +400,7 @@ impl AggActionTree {
             // Compute statistics
             let (oop_equity, oop_ev, oop_eqr) = get_player_stats(game, 0);
             let (ip_equity, ip_ev, ip_eqr) = get_player_stats(game, 1);
+            let board = game.current_board();
             self.data.push(AggRow {
                 flop: board[0..3]
                     .try_into()
@@ -389,7 +413,7 @@ impl AggActionTree {
                 oop_equity,
                 oop_ev,
                 oop_eqr,
-                actions: get_action_percentages(game),
+                action_frequencies: get_action_frequencies(game),
                 action_evs: get_action_evs(game),
             });
 
@@ -404,7 +428,7 @@ impl AggActionTree {
 
                 game.play(action_index);
 
-                child_tree.update_report_for_game(game, board);
+                child_tree.update_report_for_game(game);
 
                 game.back_to_root();
                 game.apply_history(&history);
@@ -415,10 +439,83 @@ impl AggActionTree {
 
 #[cfg(test)]
 mod tests {
+    use crate::{load_data_from_file, BetSizeOptions, BoardState, DonkSizeOptions};
+
     use super::*;
+
+    fn load_game_and_config() -> (PostFlopGame, TreeConfig) {
+        let (game, _): (PostFlopGame, _) =
+            load_data_from_file("test-artifacts/Td9d6hQc.pfs", None).unwrap();
+
+        let bet_sizes = BetSizeOptions::try_from(("60%, e, a", "2.5x")).unwrap();
+        let tree_config = TreeConfig {
+            initial_state: BoardState::Turn,
+            starting_pot: 200,
+            effective_stack: 900,
+            rake_rate: 0.0,
+            rake_cap: 0.0,
+            flop_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+            turn_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+            river_bet_sizes: [bet_sizes.clone(), bet_sizes],
+            turn_donk_sizes: None,
+            river_donk_sizes: Some(DonkSizeOptions::try_from("50%").unwrap()),
+            add_allin_threshold: 1.5,
+            force_allin_threshold: 0.15,
+            merging_threshold: 0.1,
+        };
+
+        (game, tree_config)
+    }
+
+    fn get_current_player(prev_actions: &[Action], starting_player: usize) -> usize {
+        if prev_actions.is_empty() {
+            return starting_player;
+        }
+
+        if prev_actions[0] == Action::Call {
+            return get_current_player(&prev_actions[1..], 0);
+        }
+
+        get_current_player(&prev_actions[1..], (starting_player + 1) % 2)
+    }
+
+    fn check_row(row: &AggRow, player: usize) {
+        // Check that equities sum to ~1
+        assert!((row.ip_equity + row.oop_equity - 1.0).abs() < 1e-3);
+
+        // Check that actions sum to ~1
+        let action_freq_total: f32 = row.action_frequencies.iter().sum();
+        assert!((action_freq_total - 1.0).abs() < 1e-3);
+
+        // Check evs sum to pot
+        // TODO
+
+        // Check action EVs weighted sum to player ev
+
+        let action_ev_weighted_sum = compute_average(&row.action_evs, &row.action_frequencies);
+        let player_ev = if player == 0 { row.oop_ev } else { row.ip_ev };
+        assert!((action_ev_weighted_sum - player_ev).abs() < 1e-3);
+    }
+
+    fn check_tree(tree: &AggActionTree) {
+        let current_player = get_current_player(&tree.prev_actions, 0);
+
+        for row in &tree.data {
+            check_row(row, current_player);
+        }
+
+        for (_, child) in &tree.child_trees {
+            check_tree(child);
+        }
+    }
 
     #[test]
     fn test_update_report_basic_game() {
-        todo!();
+        let (mut game, config) = load_game_and_config();
+
+        let all_lines = generate_all_lines(config.clone()).unwrap();
+        let mut tree = AggActionTree::init_root(all_lines, config).unwrap();
+        tree.update_report_for_game(&mut game);
+        check_tree(&tree);
     }
 }
