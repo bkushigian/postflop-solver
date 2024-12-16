@@ -63,8 +63,10 @@ pub fn compute_average(slice: &[f32], weights: &[f32]) -> f32 {
     let mut weight_sum = 0.0;
     let mut value_sum = 0.0;
     for (&v, &w) in slice.iter().zip(weights.iter()) {
-        weight_sum += w as f64;
-        value_sum += v as f64 * w as f64;
+        if w != 0.0 {
+            weight_sum += w as f64;
+            value_sum += v as f64 * w as f64;
+        }
     }
     (value_sum / weight_sum) as f32
 }

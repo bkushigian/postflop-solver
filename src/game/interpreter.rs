@@ -783,6 +783,7 @@ impl PostFlopGame {
         ret.chunks_exact_mut(num_hands)
             .enumerate()
             .for_each(|(action, row)| {
+                // TODO: This is an insane way to check if the action is a fold
                 let is_fold = have_actions && self.node().play(action).prev_action == Action::Fold;
                 self.apply_swap(row, player, false);
                 row.iter_mut()
