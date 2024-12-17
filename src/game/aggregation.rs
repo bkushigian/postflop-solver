@@ -66,6 +66,11 @@ fn get_action_frequencies(game: &PostFlopGame) -> Vec<f32> {
         .collect()
 }
 
+/// Returns the action EVs of the current player.
+///
+/// # Panics
+/// A panic will occur if the input game is not solved.
+/// Additionally, a panic will occur if game.cache_normalized_weights() is not called before this function.
 fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
     let actions = game.available_actions();
 
@@ -196,6 +201,38 @@ impl Display for AggRow {
 
 // NOTE: We could save some time/space avoiding the enumeration of all lines,
 //       but this time/space is dwarfed by the resouces actually needed to generate the report
+/// Returns a list of all possible _complete_ lines for the given TreeConfig.
+/// It will not include partial lines (i.e. lines that do not end in a terminal action).
+///
+/// # Examples
+///
+/// ```
+/// use postflop_solver::{load_data_from_file, Action, BetSizeOptions, BoardState, DonkSizeOptions, TreeConfig};
+/// use postflop_solver::aggregation::generate_all_lines;
+///
+/// let bet_sizes = BetSizeOptions::try_from(("10%", "")).unwrap();
+/// let tree_config = TreeConfig {
+///     initial_state: BoardState::Turn,
+///     starting_pot: 200,
+///     effective_stack: 900,
+///     rake_rate: 0.0,
+///     rake_cap: 0.0,
+///     flop_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+///     turn_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+///     river_bet_sizes: [bet_sizes.clone(), bet_sizes],
+///     turn_donk_sizes: None,
+///     river_donk_sizes: None,
+///     add_allin_threshold: 1.5,
+///     force_allin_threshold: 0.15,
+///     merging_threshold: 0.1,
+/// };
+///
+/// let all_lines = generate_all_lines(tree_config).unwrap();
+/// assert!(!all_lines.contains(&vec![]));
+/// assert!(!all_lines.contains(&vec![Action::Check]));
+/// assert!(all_lines.contains(&vec![Action::Bet(20), Action::Fold]));
+/// assert!(all_lines.contains(&vec![Action::Bet(20), Action::Call, Action::Check, Action::Check]));
+/// ```
 pub fn generate_all_lines(config: TreeConfig) -> Result<Vec<Vec<Action>>, String> {
     let mut action_tree = ActionTree::new(config)
         .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
@@ -233,17 +270,28 @@ fn generate_all_lines_rec(
 /// Tree structure for computing aggregate reports.
 /// The strucutre mirrors the action tree of the pertinent game.
 pub struct AggActionTree {
+    /// List of previous actions from this node.
     prev_actions: Vec<Action>,
+    /// List of all available actions.
     available_actions: Vec<Action>,
     // NOTE: |child_trees| <= |available_actions|
     // Because no child is created for terminating nodes
     // Use non_terminating_available_actions to get corresponding list
     // of actions taken to reach child trees
+    /// Map of non-terminating available actions to child `AggActionTree`s
     child_trees: HashMap<Action, AggActionTree>,
+    /// Aggregate report rows associated with this node, one for each board at this state in the report.
     data: Vec<AggRow>,
 }
 
 impl AggActionTree {
+    /// Initialize the AggActionTree with a set of lines and a specific TreeConfig.
+    /// To generate a report for all possible lines, first call `generate_all_lines` with the config.
+    ///
+    /// Any call to [`update_report_for_game`] on the returned `AggActionTree` should use a game
+    /// that was solved using the same `config` that was passed into `init_root`.
+    ///
+    /// [`update_report_for_game`]: #method.update_report_for_game
     pub fn init_root(lines: Vec<Vec<Action>>, config: TreeConfig) -> Result<Self, String> {
         let mut action_tree = ActionTree::new(config)
             .map_err(|e| format!("Error constructing ActionTree with input TreeConfig: {e}"))?;
@@ -284,8 +332,8 @@ impl AggActionTree {
         }
     }
 
-    // Create the child node if it doesn't exist
-    // Then, return the child node
+    // Create the child node if it doesn't exist.
+    // Then, return the child node.
     fn child_or_add(
         &mut self,
         action: Action,
@@ -298,14 +346,13 @@ impl AggActionTree {
         })
     }
 
-    // current_dir = dir that report should be written to
-    pub fn write(
+    fn write_self(
         &self,
-        current_dir: &str,
+        output_dir: &str,
         report_file_name: &str,
         existing_file_behavior: ExistingReportBehavior,
     ) -> std::io::Result<()> {
-        let file_path = format!("{}/{}", current_dir, report_file_name);
+        let file_path = format!("{}/{}", output_dir, report_file_name);
         let mut f = match existing_file_behavior {
             ExistingReportBehavior::Skip => {
                 // If the file already exists, skip overwriting it
@@ -329,20 +376,30 @@ impl AggActionTree {
         Ok(())
     }
 
-    pub fn write_self_and_children(
+    /// Output the report as a series of CSV files.
+    ///
+    /// The report for the root node is output to `<output_dir>/<report_file_name>.csv`
+    /// At each node, a new directory is created for each possible action, where the name of the directory corresponds to the action taken.
+    /// (Specifically, `check`, `call`, `bet<X>`, `raise<X>`, or `allin<X>`, where `<X>` is the amount in chips used for the aggresive action.)
+    ///
+    /// # Arguments
+    /// * `output_dir` - The name of the root directory for the aggregation reports.
+    /// * `report_file_name` - The name of the CSV file report output for each node.
+    /// * `existing_file_behavior` - Describes how `write` should behave when reports already exist at `output_dir`.
+    pub fn write(
         &self,
         current_dir: &str,
         report_file_name: &str,
         existing_file_behavior: ExistingReportBehavior,
     ) -> std::io::Result<()> {
-        self.write(current_dir, report_file_name, existing_file_behavior)?;
+        self.write_self(current_dir, report_file_name, existing_file_behavior)?;
 
         for (&action, child) in &self.child_trees {
             let line_dir_path = format!("{}/{}", current_dir, folder_name_from_action(action));
             if !Path::new(&line_dir_path).exists() {
                 fs::create_dir(&line_dir_path)?;
             }
-            child.write_self_and_children(
+            child.write(
                 format!("{}/{}", current_dir, folder_name_from_action(action)).as_str(),
                 report_file_name,
                 existing_file_behavior,
@@ -454,6 +511,7 @@ impl AggActionTree {
 // NOTE: This is only used by tests and doctests
 // But we can't use cfg(test), cfg(doctest) etc. because
 // cfg(doctest) currently does not work as expected
+/// ONLY USE FOR TESTING
 pub fn load_test_game_and_config() -> (PostFlopGame, TreeConfig) {
     use crate::{load_data_from_file, BetSizeOptions, BoardState, DonkSizeOptions};
     let (game, _): (PostFlopGame, _) =
@@ -567,7 +625,7 @@ mod tests {
         tree.update_report_for_game(&mut game);
         // Output the report for debugging
         let report_dir = "reports/agg_test";
-        tree.write_self_and_children(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
+        tree.write(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
             .expect("Problem writing to files");
         check_tree(&tree, &config);
     }

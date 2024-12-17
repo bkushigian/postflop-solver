@@ -89,6 +89,6 @@ fn main() {
 
     let report_dir = "reports/turn_root";
     report_tree
-        .write_self_and_children(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
+        .write(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
         .expect("Problem writing to files");
 }
