@@ -350,7 +350,7 @@ pub fn flop_to_string(flop: &[u8; 3]) -> Result<String, String> {
         return Err("Cards must be unique".to_string());
     }
 
-    let mut local_flop = flop.clone();
+    let mut local_flop = *flop;
     local_flop.sort();
 
     Ok(local_flop

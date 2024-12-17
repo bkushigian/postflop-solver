@@ -52,7 +52,7 @@ fn fmt_floats(floats: &[f32], formatter: &mut std::fmt::Formatter<'_>) -> std::f
     )
 }
 
-fn report_header(actions: &Vec<Action>) -> String {
+fn report_header(actions: &[Action]) -> String {
     format!(
         "Flop,Turn,River,Frequency,IP Eq,IP EV,IP EQR,OOP Eq,OOP EV,OOP EQR,{}",
         // Title for likelihood & EV per action
@@ -113,13 +113,14 @@ impl Display for AggRow {
             formatter,
             "{},",
             flop_to_string(&self.flop)
-                .expect(format!("Row contains invalid flop cards: {:?}", &self.flop).as_str()),
+                .unwrap_or_else(|_| panic!("Row contains invalid flop cards: {:?}", &self.flop))
+                .as_str(),
         )?;
 
         // Write turn and river
         let optional_card_to_string = |&opt| match opt {
             Some(card) => {
-                card_to_string(card).expect(format!("Row contains invalid card: {card}").as_str())
+                card_to_string(card).unwrap_or_else(|_| panic!("Row contains invalid card: {card}"))
             }
             None => String::from(""),
         };
@@ -186,7 +187,9 @@ fn generate_all_lines_rec(
         return Ok(());
     }
 
-    for action in action_tree.available_actions().to_owned() {
+    let all_actions = action_tree.available_actions().to_owned();
+
+    for action in all_actions {
         action_tree.play(action)?;
 
         generate_all_lines_rec(action_tree, lines)?;
@@ -257,7 +260,7 @@ impl AggActionTree {
     fn init(prev_actions: Vec<Action>, available_actions: Vec<Action>) -> Self {
         AggActionTree {
             prev_actions,
-            available_actions: available_actions,
+            available_actions,
             child_trees: HashMap::new(),
             data: Vec::new(),
         }
