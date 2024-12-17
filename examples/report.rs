@@ -1,10 +1,9 @@
-use std::fs;
-
-use aggregation::{generate_all_lines, AggActionTree, ExistingReportBehavior};
+use aggregation::{AggActionTree, ExistingReportBehavior};
 use postflop_solver::*;
 
 // Uncomment if reloading from previous game saves
-use utils::flop_helper::flop_to_string;
+// use std::fs;
+// use utils::flop_helper::flop_to_string;
 
 fn main() {
     let oop_range = "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s";
@@ -34,7 +33,6 @@ fn main() {
         merging_threshold: 0.1,
     };
 
-    // let lines = generate_all_lines(tree_config.clone()).unwrap();
     let lines = vec![
         vec![Action::Check, Action::Check],
         vec![Action::Check, Action::Bet(120)],
@@ -47,35 +45,33 @@ fn main() {
     println!("Done initializing tree");
 
     for (i, &flop) in flops[0..1].iter().enumerate() {
-        // let card_config = CardConfig {
-        //     range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
-        //     flop,
-        //     turn: NOT_DEALT,
-        //     river: NOT_DEALT,
-        // };
+        let card_config = CardConfig {
+            range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
+            flop,
+            turn: NOT_DEALT,
+            river: NOT_DEALT,
+        };
 
-        // let action_tree = ActionTree::new(tree_config.clone()).unwrap();
-        // let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
-        // game.allocate_memory(false);
+        let action_tree = ActionTree::new(tree_config.clone()).unwrap();
+        let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+        game.allocate_memory(false);
 
-        // let max_num_iterations = 1000;
-        // let target_exploitability = game.tree_config().starting_pot as f32 * 0.005;
-        // solve(&mut game, max_num_iterations, target_exploitability, true);
+        let max_num_iterations = 1000;
+        let target_exploitability = game.tree_config().starting_pot as f32 * 0.005;
+        solve(&mut game, max_num_iterations, target_exploitability, true);
 
         // Uncomment to reload previously-saved game
         // (Should also comment out above solving code)
-        let (mut game, _): (PostFlopGame, _) = load_data_from_file(
-            format!("flops/{}.bin", flop_to_string(&flop).unwrap()),
-            None,
-        )
-        .unwrap();
+        // let (mut game, _): (PostFlopGame, _) = load_data_from_file(
+        //     format!("flops/{}.bin", flop_to_string(&flop).unwrap()),
+        //     None,
+        // )
+        // .unwrap();
 
         report_tree.update_report_for_game(&mut game);
 
         // Log progress
-        //if (i + 1) % 10 == 0 {
         println!("Done with {} flops", i + 1);
-        //}
 
         // Uncomment to save game
         // save_data_to_file(
