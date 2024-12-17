@@ -556,10 +556,6 @@ mod tests {
         let all_lines = generate_all_lines(config.clone()).unwrap();
         let mut tree = AggActionTree::init_root(all_lines, config.clone()).unwrap();
         tree.update_report_for_game(&mut game);
-        // Output the report for debugging
-        let report_dir = "reports/agg_test";
-        tree.write(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
-            .expect("Problem writing to files");
         check_tree(&tree, &config);
     }
 }
