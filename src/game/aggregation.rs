@@ -534,6 +534,11 @@ mod tests {
         if !(action_ev_weighted_sum.is_nan() && player_ev.is_nan()) {
             assert!((action_ev_weighted_sum - player_ev).abs() < 1e-3);
         }
+
+        // Check that the global frequency is between 0 and 1
+        if !row.global_frequency.is_nan() {
+            assert!(row.global_frequency >= 0.0 && row.global_frequency <= 1.0);
+        }
     }
 
     fn check_tree(tree: &AggActionTree, config: &TreeConfig) {
