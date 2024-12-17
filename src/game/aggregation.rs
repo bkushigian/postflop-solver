@@ -8,21 +8,20 @@ use std::{
 
 use crate::{
     card_to_string, compute_average, game::utils::flop_helper::flop_to_string, Action, ActionTree,
-    PostFlopGame, TreeConfig,
+    Game, PostFlopGame, TreeConfig,
 };
 
 // TODO do we ever realistically want the Skip option?
 // TODO also, for `Error`, we may actually want to error if the directory exists at all
 //      (as opposed to what's done now, which may not error until after some reports are already written)
 /// Describes possible behaviors for writing reports to files that already exist.
-///
-/// `Skip` describes the behavior of skipping over existing report files, _not_ overwriting them when encountered.
-/// `Overwrite` describes the behavior of overwriting existing report files without erroring.
-/// `Error` describes the behavior of returning an error when an existing report is encountered.
 #[derive(Clone, Copy)]
 pub enum ExistingReportBehavior {
+    /// Describes the behavior of skipping over existing report files, _not_ overwriting them when encountered.
     Skip,
+    /// Describes the behavior of overwriting existing report files without erroring.
     Overwrite,
+    /// Describes the behavior of returning an error when an existing report is encountered.
     Error,
 }
 
@@ -67,43 +66,26 @@ fn get_action_frequencies(game: &PostFlopGame) -> Vec<f32> {
         .collect()
 }
 
-// Need game to determine cost of Action::Call
-fn get_action_cost(game: &PostFlopGame, action: Action) -> i32 {
-    match action {
-        Action::Bet(x) | Action::Raise(x) | Action::AllIn(x) => x,
-        Action::Call => {
-            let prev_action = game.prev_action();
-            // Previous action should always be a bet, raise, or allin
-            assert!(matches!(
-                prev_action,
-                Action::Bet(_) | Action::Raise(_) | Action::AllIn(_)
-            ));
-            get_action_cost(game, prev_action)
-        }
-        _ => 0,
-    }
-}
-
 fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
     let actions = game.available_actions();
-    let history = game.history().to_owned();
 
     (0..actions.len())
         .map(|action_index| {
             let player = game.current_player();
+            let num_private_hands = game.num_private_hands(player);
+            let relevant_range =
+                action_index * num_private_hands..(action_index + 1) * num_private_hands;
 
-            game.play(action_index);
-            game.cache_normalized_weights();
+            let strategy = &game.strategy()[relevant_range.clone()];
+            let evs_detail = &game.expected_values_detail(player)[relevant_range];
+            let norm_weights = game.normalized_weights(player);
+            let weights: Vec<f32> = strategy
+                .iter()
+                .zip(norm_weights)
+                .map(|(s, w)| s * w)
+                .collect();
 
-            let weights = game.normalized_weights(player).to_owned();
-            let evs = game.expected_values(player);
-            let average_ev_after_action = compute_average(&evs, &weights);
-
-            game.back_to_root();
-            game.apply_history(&history);
-
-            // Actual EV of action
-            average_ev_after_action - get_action_cost(game, actions[action_index]) as f32
+            compute_average(evs_detail, &weights)
         })
         .collect()
 }
@@ -136,7 +118,7 @@ fn fmt_floats(floats: &[f32], formatter: &mut std::fmt::Formatter<'_>) -> std::f
 
 fn report_header(actions: &Vec<Action>) -> String {
     format!(
-        "Flop,Turn,River,IP Eq,IP EV,IP EQR,OOP Eq,OOP EV,OOP EQR,{}",
+        "Flop,Turn,River,Frequency,IP Eq,IP EV,IP EQR,OOP Eq,OOP EV,OOP EQR,{}",
         // Title for likelihood & EV per action
         actions
             .iter()
@@ -147,34 +129,37 @@ fn report_header(actions: &Vec<Action>) -> String {
 }
 
 /// Single row in an aggregate report
-/// flop: describes the 3 cards of the flop
-/// turn: optional value, describes the turn card (required if river is present)
-/// river: optional value, describes the river card
-/// ip_equity: equity (0-100 value) of the in-position player
-/// ip_ev: expected value (in chips) of the in-position player
-/// ip_eqr: equity realization (0-100 value) of the in-position player
-/// oop_equity: equity (0-100 value) of the out-of-position player
-/// oop_ev: expected value (in chips) of the out-of-position player
-/// oop_eqr: equity realization (0-100 value) of the out-of-position player
-/// actions: list of action likelihoods (0-100), corresponding to the list of action from the owning AggActionTree
-/// action_evs: expected value (in chips) resulting from each action
 pub struct AggRow {
+    /// Describes the 3 cards of the flop
     flop: [u8; 3],
+    /// Describes the turn card (required if river is present)
     turn: Option<u8>,
+    /// Describes the river card
     river: Option<u8>,
+    /// Likelihood of arriving at the current spot
+    global_frequency: f32,
+    /// Equity of the in-position player
     ip_equity: f32,
+    /// Expected value (in chips) of the in-position player
     ip_ev: f32,
+    /// Equity realization of the in-position player
     ip_eqr: f32,
+    /// Equity of the out-of-position player
     oop_equity: f32,
+    /// Expected value (in chips) of the out-of-position player
     oop_ev: f32,
+    /// Equity realization of the out-of-position player
     oop_eqr: f32,
+    /// List of action likelihoods, corresponding to the list of action from the owning AggActionTree
     action_frequencies: Vec<f32>,
+    /// Expected value (in chips) resulting from each action
     action_evs: Vec<f32>,
 }
 
 impl Display for AggRow {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut all_stats: Vec<f32> = vec![
+            self.global_frequency,
             self.ip_equity,
             self.ip_ev,
             self.ip_eqr,
@@ -376,9 +361,29 @@ impl AggActionTree {
     /// # Examples
     ///
     /// ```
-    /// todo!()
+    /// # use postflop_solver::aggregation::load_test_game_and_config;
+    /// # let (mut game1, config) = load_test_game_and_config();
+    /// # let (mut game2, _) = load_test_game_and_config();
+    /// #
+    /// use postflop_solver::aggregation::{AggActionTree, generate_all_lines};
+    ///
+    /// // All solves within the aggregation report are expected to use the same config.
+    /// let all_lines = generate_all_lines(config.clone()).unwrap();
+    /// let mut tree = AggActionTree::init_root(all_lines, config.clone()).unwrap();
+    ///
+    /// tree.update_report_for_game(&mut game1);
+    /// tree.update_report_for_game(&mut game2);
+    /// // ...
     /// ```
     pub fn update_report_for_game(&mut self, game: &mut PostFlopGame) {
+        self.update_report_for_game_with_frequency(game, 1.0);
+    }
+
+    fn update_report_for_game_with_frequency(
+        &mut self,
+        game: &mut PostFlopGame,
+        global_frequency: f32,
+    ) {
         // Generally, game needs to be reverted to this history after playing any action
         // This is necessary to process data for multiple lines over the game
         let history = game.history().to_owned();
@@ -393,7 +398,7 @@ impl AggActionTree {
 
                 game.play(card as usize);
 
-                self.update_report_for_game(game);
+                self.update_report_for_game_with_frequency(game, global_frequency);
 
                 game.back_to_root();
                 game.apply_history(&history);
@@ -406,21 +411,24 @@ impl AggActionTree {
             let (oop_equity, oop_ev, oop_eqr) = get_player_stats(game, 0);
             let (ip_equity, ip_ev, ip_eqr) = get_player_stats(game, 1);
             let board = game.current_board();
-            self.data.push(AggRow {
+            let action_frequencies = get_action_frequencies(game);
+            let row = AggRow {
                 flop: board[0..3]
                     .try_into()
                     .expect("board must at least have flop"),
                 turn: board.get(3).copied(),
                 river: board.get(4).copied(),
+                global_frequency,
                 ip_equity,
                 ip_ev,
                 ip_eqr,
                 oop_equity,
                 oop_ev,
                 oop_eqr,
-                action_frequencies: get_action_frequencies(game),
+                action_frequencies: action_frequencies.clone(),
                 action_evs: get_action_evs(game),
-            });
+            };
+            self.data.push(row);
 
             // Update child nodes for each action
             // NOTE: actions should only appear in the tree if the line was explicitly requested
@@ -433,7 +441,8 @@ impl AggActionTree {
 
                 game.play(action_index);
 
-                child_tree.update_report_for_game(game);
+                let new_global_frequency = global_frequency * action_frequencies[action_index];
+                child_tree.update_report_for_game_with_frequency(game, new_global_frequency);
 
                 game.back_to_root();
                 game.apply_history(&history);
@@ -442,35 +451,37 @@ impl AggActionTree {
     }
 }
 
+// NOTE: This is only used by tests and doctests
+// But we can't use cfg(test), cfg(doctest) etc. because
+// cfg(doctest) currently does not work as expected
+pub fn load_test_game_and_config() -> (PostFlopGame, TreeConfig) {
+    use crate::{load_data_from_file, BetSizeOptions, BoardState, DonkSizeOptions};
+    let (game, _): (PostFlopGame, _) =
+        load_data_from_file("test-artifacts/Td9d6hQc.pfs", None).unwrap();
+
+    let bet_sizes = BetSizeOptions::try_from(("60%, e, a", "2.5x")).unwrap();
+    let tree_config = TreeConfig {
+        initial_state: BoardState::Turn,
+        starting_pot: 200,
+        effective_stack: 900,
+        rake_rate: 0.0,
+        rake_cap: 0.0,
+        flop_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+        turn_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+        river_bet_sizes: [bet_sizes.clone(), bet_sizes],
+        turn_donk_sizes: None,
+        river_donk_sizes: Some(DonkSizeOptions::try_from("50%").unwrap()),
+        add_allin_threshold: 1.5,
+        force_allin_threshold: 0.15,
+        merging_threshold: 0.1,
+    };
+
+    (game, tree_config)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{load_data_from_file, BetSizeOptions, BoardState, DonkSizeOptions};
-
     use super::*;
-
-    fn load_game_and_config() -> (PostFlopGame, TreeConfig) {
-        let (game, _): (PostFlopGame, _) =
-            load_data_from_file("test-artifacts/Td9d6hQc.pfs", None).unwrap();
-
-        let bet_sizes = BetSizeOptions::try_from(("60%, e, a", "2.5x")).unwrap();
-        let tree_config = TreeConfig {
-            initial_state: BoardState::Turn,
-            starting_pot: 200,
-            effective_stack: 900,
-            rake_rate: 0.0,
-            rake_cap: 0.0,
-            flop_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
-            turn_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
-            river_bet_sizes: [bet_sizes.clone(), bet_sizes],
-            turn_donk_sizes: None,
-            river_donk_sizes: Some(DonkSizeOptions::try_from("50%").unwrap()),
-            add_allin_threshold: 1.5,
-            force_allin_threshold: 0.15,
-            merging_threshold: 0.1,
-        };
-
-        (game, tree_config)
-    }
 
     fn get_current_player(prev_actions: &[Action], starting_player: usize) -> usize {
         if prev_actions.is_empty() {
@@ -508,24 +519,20 @@ mod tests {
 
     fn check_row(row: &AggRow, player: usize, pot: f32) {
         // Check that equities sum to ~1
-        println!("OOP equity: {:?}", row.oop_equity);
-        println!("IP equity: {:?}", row.ip_equity);
         // Skip check if both are NaN
         if !(row.ip_equity.is_nan() && row.oop_equity.is_nan()) {
             assert!((row.ip_equity + row.oop_equity - 1.0).abs() < 1e-3);
         }
 
         // Check that actions sum to ~1
+        // Skip if action frequency is NaN
         let action_freq_total: f32 = row.action_frequencies.iter().sum();
-        println!("Action freq total: {:?}", action_freq_total);
         if !action_freq_total.is_nan() {
             assert!((action_freq_total - 1.0).abs() < 1e-3);
         }
 
         // Check evs sum to pot
-        println!("OOP EV: {:?}", row.oop_ev);
-        println!("IP EV: {:?}", row.ip_ev);
-        println!("Pot: {:?}", pot);
+        // Skip check if both are NaN
         if !(row.ip_ev.is_nan() && row.oop_ev.is_nan()) {
             assert!((row.oop_ev + row.ip_ev - pot).abs() < 1e-3);
         }
@@ -533,19 +540,15 @@ mod tests {
         // Check action EVs weighted sum to player ev
         let action_ev_weighted_sum = compute_average(&row.action_evs, &row.action_frequencies);
         let player_ev = if player == 0 { row.oop_ev } else { row.ip_ev };
-        println!("Action EV sum: {:?}", action_ev_weighted_sum);
-        println!("Player EV: {:?}", player_ev);
-        assert!((action_ev_weighted_sum - player_ev).abs() < 1e-3);
+        if !(action_ev_weighted_sum.is_nan() && player_ev.is_nan()) {
+            assert!((action_ev_weighted_sum - player_ev).abs() < 1e-3);
+        }
     }
 
     fn check_tree(tree: &AggActionTree, config: &TreeConfig) {
         let current_player = get_current_player(&tree.prev_actions, 0);
-        println!("Prev actions: {:?}", tree.prev_actions);
 
         for row in &tree.data {
-            if let Some(c) = row.river {
-                println!("River: {c:?}");
-            }
             let pot = config.starting_pot + get_total_bets(&tree.prev_actions);
             check_row(row, current_player, pot as f32);
         }
@@ -557,15 +560,15 @@ mod tests {
 
     #[test]
     fn test_update_report_basic_game() {
-        let (mut game, config) = load_game_and_config();
+        let (mut game, config) = load_test_game_and_config();
 
         let all_lines = generate_all_lines(config.clone()).unwrap();
         let mut tree = AggActionTree::init_root(all_lines, config.clone()).unwrap();
         tree.update_report_for_game(&mut game);
         // Output the report for debugging
-        // let report_dir = "reports/agg_test";
-        // tree.write_self_and_children(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
-        //     .expect("Problem writing to files");
+        let report_dir = "reports/agg_test";
+        tree.write_self_and_children(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
+            .expect("Problem writing to files");
         check_tree(&tree, &config);
     }
 }
