@@ -334,6 +334,33 @@ pub fn flop_from_str(s: &str) -> Result<[Card; 3], String> {
     Ok(result)
 }
 
+/// Attempts to convert a flop array into a string representation of the flop.
+///
+/// # Examples
+/// ```
+/// use postflop_solver::flop_to_string;
+///
+/// assert_eq!(flop_to_string(&[10, 0, 5]), Ok(String::from("4h3d2c")));
+/// assert_eq!(flop_to_string(&[47, 50, 51]), Ok(String::from("AsAhKs")));
+/// assert!(flop_to_string(&[23, 23, 23]).is_err());
+/// ```
+#[inline]
+pub fn flop_to_string(flop: &[u8; 3]) -> Result<String, String> {
+    if flop[0] == flop[1] || flop[1] == flop[2] {
+        return Err("Cards must be unique".to_string());
+    }
+
+    let mut local_flop = flop.clone();
+    local_flop.sort();
+
+    Ok(local_flop
+        .iter()
+        .rev()
+        .map(|card| card_to_string(*card))
+        .collect::<Result<Vec<String>, String>>()?
+        .join(""))
+}
+
 #[inline]
 fn parse_singleton(combo: &str) -> Result<(u8, u8, Suitedness), String> {
     if combo.len() == 4 {

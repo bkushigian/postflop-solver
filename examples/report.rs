@@ -9,11 +9,16 @@ fn main() {
     let oop_range = "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s";
     let ip_range = "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+";
 
-    // Get all J-high unpaired rainbow flops
-    let flops = textured_flops_from_list(
-        Texture::Unpaired,
-        textured_flops_from_list(Texture::Rainbow, high_flops(card_from_str("Jc").unwrap())),
-    );
+    // All J-high unpaired rainbow flops
+    let flops: Vec<[u8; 3]> = [
+        "Jh3d2c", "Jh4d2c", "Jh5d2c", "Jh6d2c", "Jh7d2c", "Jh8d2c", "Jh9d2c", "JhTd2c", "Jh4d3c",
+        "Jh5d3c", "Jh6d3c", "Jh7d3c", "Jh8d3c", "Jh9d3c", "JhTd3c", "Jh5d4c", "Jh6d4c", "Jh7d4c",
+        "Jh8d4c", "Jh9d4c", "JhTd4c", "Jh6d5c", "Jh7d5c", "Jh8d5c", "Jh9d5c", "JhTd5c", "Jh7d6c",
+        "Jh8d6c", "Jh9d6c", "JhTd6c", "Jh8d7c", "Jh9d7c", "JhTd7c", "Jh9d8c", "JhTd8c", "JhTd9c",
+    ]
+    .iter()
+    .map(|fstr| flop_from_str(fstr).unwrap())
+    .collect();
 
     let bet_sizes = BetSizeOptions::try_from(("60%, e, a", "2.5x")).unwrap();
 
