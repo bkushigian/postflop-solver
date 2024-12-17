@@ -557,6 +557,8 @@ mod tests {
         }
     }
 
+    // NOTE: This test is dependent on a fixed solve `test-artifacts/Td9d6hQc.pfs`.
+    // Thus, if the output format for solves changes, this test will break.
     #[test]
     fn test_update_report_basic_game() {
         let (mut game, config) = load_test_game_and_config();
