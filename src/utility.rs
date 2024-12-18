@@ -63,12 +63,25 @@ pub fn compute_average(slice: &[f32], weights: &[f32]) -> f32 {
     let mut weight_sum = 0.0;
     let mut value_sum = 0.0;
     for (&v, &w) in slice.iter().zip(weights.iter()) {
-        if w != 0.0 {
-            weight_sum += w as f64;
-            value_sum += v as f64 * w as f64;
-        }
+        weight_sum += w as f64;
+        value_sum += v as f64 * w as f64;
     }
     (value_sum / weight_sum) as f32
+}
+
+/// Works like compute_average, but ignores values where the correspondding weight is 0.0.
+/// This means that `compute_average_filter_0s` can output a non-NaN value, even when some values are NaN
+/// (so long as their corresponding weights are 0.0).
+///
+/// Use this function only when performance is not a concern.
+#[inline]
+pub fn compute_average_filter_0s(slice: &[f32], weights: &[f32]) -> f32 {
+    let (filtered_slice, filtered_weights): (Vec<f32>, Vec<f32>) = slice
+        .iter()
+        .zip(weights.iter())
+        .filter(|(_, &w)| w != 0.0)
+        .unzip();
+    compute_average(&filtered_slice, &filtered_weights)
 }
 
 #[inline]

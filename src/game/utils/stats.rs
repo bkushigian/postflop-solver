@@ -1,4 +1,4 @@
-use crate::{compute_average, Game, PostFlopGame};
+use crate::{compute_average_filter_0s, Game, PostFlopGame};
 
 /// Returns the player's equity, EV, and EQR (in that order).
 /// *Requires game.cache_normalized_weights() to be called beforehand.*
@@ -18,8 +18,8 @@ pub fn get_player_stats(game: &PostFlopGame, player: usize) -> (f32, f32, f32) {
     let equity = game.equity(player);
     let ev = game.expected_values(player);
     let weights = game.normalized_weights(player);
-    let average_equity = compute_average(&equity, weights);
-    let average_ev = compute_average(&ev, weights);
+    let average_equity = compute_average_filter_0s(&equity, weights);
+    let average_ev = compute_average_filter_0s(&ev, weights);
     (
         average_equity,
         average_ev,
@@ -47,7 +47,9 @@ pub fn get_action_frequencies(game: &PostFlopGame) -> Vec<f32> {
     let weights = game.normalized_weights(player);
 
     (0..actions.len())
-        .map(|i| compute_average(&strategy[i * cards.len()..(i + 1) * cards.len()], weights))
+        .map(|i| {
+            compute_average_filter_0s(&strategy[i * cards.len()..(i + 1) * cards.len()], weights)
+        })
         .collect()
 }
 
@@ -80,7 +82,7 @@ pub fn get_action_evs(game: &mut PostFlopGame) -> Vec<f32> {
                 .map(|(s, w)| s * w)
                 .collect();
 
-            compute_average(evs_detail, &weights)
+            compute_average_filter_0s(evs_detail, &weights)
         })
         .collect()
 }

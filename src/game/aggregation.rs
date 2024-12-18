@@ -12,9 +12,6 @@ use crate::{
     Action, ActionTree, PostFlopGame, TreeConfig,
 };
 
-// TODO do we ever realistically want the Skip option?
-// TODO also, for `Error`, we may actually want to error if the directory exists at all
-//      (as opposed to what's done now, which may not error until after some reports are already written)
 /// Describes possible behaviors for writing reports to files that already exist.
 #[derive(Clone, Copy)]
 pub enum ExistingReportBehavior {
@@ -473,7 +470,7 @@ pub fn load_test_game_and_config() -> (PostFlopGame, TreeConfig) {
 
 #[cfg(test)]
 mod tests {
-    use crate::compute_average;
+    use crate::compute_average_filter_0s;
 
     use super::*;
 
@@ -489,7 +486,6 @@ mod tests {
         get_current_player(&prev_actions[1..], (starting_player + 1) % 2)
     }
 
-    // TODO this is jank
     fn get_total_bets(prev_actions: &[Action]) -> i32 {
         let mut total = 0;
         let mut prev_bet = 0;
@@ -532,7 +528,8 @@ mod tests {
         }
 
         // Check action EVs weighted sum to player ev
-        let action_ev_weighted_sum = compute_average(&row.action_evs, &row.action_frequencies);
+        let action_ev_weighted_sum =
+            compute_average_filter_0s(&row.action_evs, &row.action_frequencies);
         let player_ev = if player == 0 { row.oop_ev } else { row.ip_ev };
         if !(action_ev_weighted_sum.is_nan() && player_ev.is_nan()) {
             assert!((action_ev_weighted_sum - player_ev).abs() < 1e-3);
