@@ -1,0 +1,95 @@
+use aggregation::{AggActionTree, ExistingReportBehavior};
+use postflop_solver::*;
+
+// Uncomment if reloading from previous game saves
+// use std::fs;
+// use utils::flop_helper::flop_to_string;
+
+fn main() {
+    let oop_range = "66+,A8s+,A5s-A4s,AJo+,K9s+,KQo,QTs+,JTs,96s+,85s+,75s+,65s,54s";
+    let ip_range = "QQ-22,AQs-A2s,ATo+,K5s+,KJo+,Q8s+,J8s+,T7s+,96s+,86s+,75s+,64s+,53s+";
+
+    // All J-high unpaired rainbow flops
+    let flops: Vec<[u8; 3]> = [
+        "Jh3d2c", "Jh4d2c", "Jh5d2c", "Jh6d2c", "Jh7d2c", "Jh8d2c", "Jh9d2c", "JhTd2c", "Jh4d3c",
+        "Jh5d3c", "Jh6d3c", "Jh7d3c", "Jh8d3c", "Jh9d3c", "JhTd3c", "Jh5d4c", "Jh6d4c", "Jh7d4c",
+        "Jh8d4c", "Jh9d4c", "JhTd4c", "Jh6d5c", "Jh7d5c", "Jh8d5c", "Jh9d5c", "JhTd5c", "Jh7d6c",
+        "Jh8d6c", "Jh9d6c", "JhTd6c", "Jh8d7c", "Jh9d7c", "JhTd7c", "Jh9d8c", "JhTd8c", "JhTd9c",
+    ]
+    .iter()
+    .map(|fstr| flop_from_str(fstr).unwrap())
+    .collect();
+
+    let bet_sizes = BetSizeOptions::try_from(("60%, e, a", "2.5x")).unwrap();
+
+    let tree_config = TreeConfig {
+        initial_state: BoardState::Flop,
+        starting_pot: 200,
+        effective_stack: 900,
+        rake_rate: 0.0,
+        rake_cap: 0.0,
+        flop_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+        turn_bet_sizes: [bet_sizes.clone(), bet_sizes.clone()],
+        river_bet_sizes: [bet_sizes.clone(), bet_sizes],
+        turn_donk_sizes: None,
+        river_donk_sizes: Some(DonkSizeOptions::try_from("50%").unwrap()),
+        add_allin_threshold: 1.5,
+        force_allin_threshold: 0.15,
+        merging_threshold: 0.1,
+    };
+
+    let lines = vec![
+        vec![Action::Check, Action::Check],
+        vec![Action::Check, Action::Bet(120)],
+    ];
+
+    println!("Done generating lines");
+
+    let mut report_tree = AggActionTree::init_root(lines, tree_config.clone()).unwrap();
+
+    println!("Done initializing tree");
+
+    for (i, &flop) in flops[0..1].iter().enumerate() {
+        let card_config = CardConfig {
+            range: [oop_range.parse().unwrap(), ip_range.parse().unwrap()],
+            flop,
+            turn: NOT_DEALT,
+            river: NOT_DEALT,
+        };
+
+        let action_tree = ActionTree::new(tree_config.clone()).unwrap();
+        let mut game = PostFlopGame::with_config(card_config, action_tree).unwrap();
+        game.allocate_memory(false);
+
+        let max_num_iterations = 1000;
+        let target_exploitability = game.tree_config().starting_pot as f32 * 0.005;
+        solve(&mut game, max_num_iterations, target_exploitability, true);
+
+        // Uncomment to reload previously-saved game
+        // (Should also comment out above solving code)
+        // let (mut game, _): (PostFlopGame, _) = load_data_from_file(
+        //     format!("flops/{}.bin", flop_to_string(&flop).unwrap()),
+        //     None,
+        // )
+        // .unwrap();
+
+        report_tree.update_report_for_game(&mut game);
+
+        // Log progress
+        println!("Done with {} flops", i + 1);
+
+        // Uncomment to save game
+        // save_data_to_file(
+        //     &game,
+        //     "memo string",
+        //     format!("flops/{}.bin", flop_to_string(&flop)),
+        //     None,
+        // )
+        // .unwrap();
+    }
+
+    let report_dir = "reports/turn_root";
+    report_tree
+        .write(&report_dir, "report.csv", ExistingReportBehavior::Overwrite)
+        .expect("Problem writing to files");
+}

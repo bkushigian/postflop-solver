@@ -1,7 +1,9 @@
+pub mod aggregation;
 mod base;
 mod evaluation;
 mod interpreter;
 mod node;
+pub mod utils;
 
 #[cfg(feature = "bincode")]
 mod serialization;
