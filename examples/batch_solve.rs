@@ -178,8 +178,7 @@ fn get_existing_config(
         let existing_config =
             serde_read::<SolveConfig>(&metadata.path.join(&existing_config_file))?;
 
-        // TODO should I instead do &existing_config == config?
-        if existing_config == *config {
+        if &existing_config == config {
             return Ok(Some(existing_config_file.clone()));
         }
     }
