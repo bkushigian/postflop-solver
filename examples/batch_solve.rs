@@ -1,16 +1,14 @@
 use std::{
     collections::HashMap,
-    error::Error,
-    fs::File,
+    fs::{remove_file, File},
     io::BufReader,
     path::{Path, PathBuf},
-    process::exit,
 };
 
 use clap::Parser;
 use postflop_solver::{
-    cards_from_str, deserialize_configs_from_file, save_data_to_file, serialize_configs_to_json,
-    solve, Action, ActionTree, BoardState, CardConfig, PostFlopGame, Range, TreeConfig,
+    cards_from_str, save_data_to_file, solve, Action, ActionTree, BoardState, CardConfig,
+    PostFlopGame, Range, TreeConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,46 +39,25 @@ struct SolveMetadata {
     save_state: BoardState,
 }
 
-/*
-#[derive(Debug, Serialize, Deserialize)]
-enum SolveConfig {
-    File(PathBuf),
-    Object(SolveConfigData),
-} */
-
 #[derive(Debug, Serialize, Deserialize)]
 struct SolveConfig {
     // name: Option<String>,
-    card_config: CardConfig,
     // NOTE: For now, just manually ignore the flop in the config
+    card_config: CardConfig,
     tree_config: TreeConfig,
     added_lines: Vec<Vec<Action>>,
     removed_lines: Vec<Vec<Action>>,
 }
-
-/*
-impl SolveConfig {
-    fn to_config_data(self) -> Result<SolveConfigData, Box<dyn Error>> {
-        match self {
-            SolveConfig::Object(d) => Ok(d),
-            SolveConfig::File(path_buf) => {
-                let file = File::open(path_buf)?;
-                let reader = BufReader::new(file);
-                Ok(serde_json::from_reader(reader)?)
-            }
-        }
-    }
-} */
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// Path to configuration file
-    config: Option<String>,
+    config: String,
 
     #[clap(flatten)]
-    boards: Option<Boards>,
+    boards: Boards,
 
     /// Directory representing the solve DB
     #[arg(short, long, default_value = ".")]
@@ -141,6 +118,19 @@ impl Boards {
     }
 }
 
+fn get_existing_solve_metadata<'a>(
+    metadata: &'a SolveDBMetadata,
+    board: &str,
+    config_file_name: &str,
+) -> Option<(&'a SolveMetadata, usize)> {
+    for (i, data) in metadata.solves[board].iter().enumerate() {
+        if data.config == config_file_name {
+            return Some((data, i));
+        }
+    }
+    None
+}
+
 fn main() -> Result<(), String> {
     let args = Args::parse();
     let dir = PathBuf::from(args.dir);
@@ -148,6 +138,7 @@ fn main() -> Result<(), String> {
     /* ASSUMTIONS */
     /*
      * The output dir exists, and is empty if it does not contain the SDB.
+     * There are no directories within dir (i.e. everything is a file in the SDB)
      * This binary is run atomically (obviously unrealistic, need to peel this back later).
      *** Need to be particularly careful about overwriting metadata before all solves/configs are written.
      */
@@ -175,8 +166,8 @@ fn main() -> Result<(), String> {
     };
 
     // Load config
-    let config_read_path = args.config.unwrap(); // TODO make config path non-optional
-    let config: SolveConfig = {
+    let config_read_path = args.config;
+    let mut config: SolveConfig = {
         let file = File::open(&config_read_path)
             .map_err(|e| format!("Error when opening config file: {e:?}"))?;
         let reader = BufReader::new(file);
@@ -186,39 +177,150 @@ fn main() -> Result<(), String> {
 
     // TODO could take in config from cmdline somehow here...
 
-    // Copy config to SDB (if not already contained in SDB)
-    if Path::new(&config_read_path)
+    // Update config with command-line specified data
+    // TODO can we geet rid of these clones?
+    if let Some(range_string) = args.oop_range.clone() {
+        config.card_config.range[0] = range_string
+            .parse::<Range>()
+            .map_err(|e| format!("Couldn't parse OOP Range {range_string:?}, got error:\n{e:?}"))?;
+    }
+
+    if let Some(range_string) = args.ip_range.clone() {
+        config.card_config.range[1] = range_string
+            .parse::<Range>()
+            .map_err(|e| format!("Couldn't parse IP Range {range_string:?}, got error:\n{e:?}"))?;
+    }
+
+    // Save config to SDB
+    // Unless it's already in the SDB AND no CLI args were provided
+    // Need to keep track of the config path though, for storing metadata
+    // TODO is there a better way to check if the given config is in the SDB?
+    let config_file_name: String = if Path::new(&config_read_path)
         .parent()
         .unwrap()
         .canonicalize()
         .unwrap()
-        != dir.canonicalize().unwrap()
+        == dir.canonicalize().unwrap()
+        && args.oop_range.is_none()
+        && args.ip_range.is_none()
     {
+        // Case where no save is necessary
+        // TODO better way of doing this?
+        Path::new(&config_read_path)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    } else {
         std::fs::write(
             dir.join(&solve_name).join(CONFIG_FILE_EXTENSION),
             serde_json::to_string_pretty(&config).expect("Could not serialize config"),
         )
-        .expect("Could not write config file")
-    }
+        .expect("Could not write config file");
+        format!("{solve_name:?}{CONFIG_FILE_EXTENSION:?}")
+    };
 
     // Load boards
-    // TODO
-    let boards: Vec<String> = vec![];
+    // TODO need to canonicalize boards
+    let boards: Vec<String> = args
+        .boards
+        .as_list()
+        .map_err(|e| format!("Error getting boards: {e:?}"))?;
+
+    // Define fn for determining of solve exists for a board (with the config at config_file_name)
+
+    // Define fn for getting each solve path
+    let solve_file_name = |board: &str| format!("{solve_name:?}{board:?}{SOLVE_FILE_EXTENSION:?}");
 
     // Check that the requested solves don't already exist
     // TODO currently this check could be slow with a large number of existing & requested solves
     // NOTE/TODO: For now, only checking that to see if the config files are the same
-    if args.halt_on_existing {}
+    if args.halt_on_existing {
+        for board in &boards {
+            if get_existing_solve_metadata(&metadata, board, &config_file_name).is_some() {
+                return Err(format!(
+                    "Solve already exists for board {board:?} with config {config_file_name}!"
+                ));
+            }
+        }
+    }
 
-    // Do the solving
-    // TODO
+    // Print stats before solving
+    let tree_config = config.tree_config;
+    let card_config = config.card_config;
+    let max_num_iterations = args.max_iterations;
+    let target_exploitability = tree_config.starting_pot as f32 * args.exploitability;
+    println!("Starting pot: {}", tree_config.starting_pot);
+    println!("Effective stacks: {}", tree_config.effective_stack);
+    println!(
+        "Exploitable for {}% of staring pot ({} chips)",
+        args.exploitability * 100.0,
+        target_exploitability
+    );
+
+    // Begin the solving loop
+    let num_boards = boards.len();
+    println!("\nBeginning Solves\n----------------\n");
+    for (i, board) in boards.iter().enumerate() {
+        println!("\nSolving board {}/{}: {}", i + 1, num_boards, board);
+
+        // Check for existence
+        if !args.overwrite
+            && get_existing_solve_metadata(&metadata, board, &config_file_name).is_some()
+        {
+            println!(
+                "Sim for {:?} with config {:?} already exists...continuing...",
+                board, config_file_name,
+            );
+            continue;
+        }
+
+        // Construct path, cards, game, etc.
+        let path = dir.join(solve_file_name(board));
+        let cards = cards_from_str(board)
+            .unwrap_or_else(|e| panic!("Couldn't parse board {}: {}", board, e));
+        let mut game = PostFlopGame::with_config(
+            card_config.with_cards(cards).unwrap(),
+            ActionTree::new(tree_config.clone()).unwrap(),
+        )
+        .unwrap();
+        let mem_usage = game.memory_usage();
+        let mem_usage_mb = (mem_usage.0 as f64) / (1024 * 1024) as f64;
+
+        println!("Memory usage: {:5.2} MB", mem_usage_mb);
+
+        // Solve the game
+        game.allocate_memory(false);
+        solve(&mut game, max_num_iterations, target_exploitability, true);
+        game.set_target_storage_mode(TARGET_STORAGE_MODE).unwrap();
+
+        // If args.overwrite is set and save already exists, remove the existing save
+        if let Some((game_metadata, index)) =
+            get_existing_solve_metadata(&metadata, board, &config_file_name)
+        {
+            println!("Overwriting save at {}", game_metadata.path);
+            remove_file(dir.join(&game_metadata.path))
+                .map_err(|e| format!("Error removing existing solve file: {e:?}"))?;
+            metadata
+                .solves
+                .get_mut(board)
+                .unwrap_or_else(|| panic!("Metadata unexpectedly did not contain board {board}."))
+                .remove(index);
+        }
+
+        // Save the game
+        match save_data_to_file(&game, "batch solve", &path, None) {
+            Ok(_) => println!("Saved to {}", path.display()),
+            Err(_) => panic!("Unable to save to {:?}", &path),
+        }
+    }
 
     // Update the SDB metadata
     for board in boards {
         let board_metadata = SolveMetadata {
-            // TODO make this a function
-            path: format!("{solve_name:?}{board:?}{SOLVE_FILE_EXTENSION:?}"),
-            config: format!("{solve_name:?}{CONFIG_FILE_EXTENSION:?}"),
+            path: solve_file_name(&board),
+            config: config_file_name.clone(),
             save_state: TARGET_STORAGE_MODE,
         };
         metadata
@@ -233,203 +335,5 @@ fn main() -> Result<(), String> {
     )
     .expect("Couldn't write metadata file");
 
-    /*
-     *
-     *
-     *
-     *
-     *
-     *
-     *
-     *
-     */
-
-    // Set up output paths for both configs and boards. These will be stored in
-    // the solved database directory. We want to check to see if there will be a
-    // conflict:
-    let config_output_path = dir.join("config.json");
-    let boards_output_path = dir.join("boards.txt");
-
-    let config_path = if let Some(config) = args.config {
-        if config_output_path.exists() && !args.overwrite {
-            println!(
-                "Error: `--config {}` was specified but `{}` already exists!",
-                &config,
-                config_output_path.display()
-            );
-            exit(1);
-        }
-        PathBuf::from(config)
-    } else if config_output_path.exists() {
-        config_output_path.clone()
-    } else {
-        println!(
-            "No config specified, and `{}` doesn't exist!",
-            config_output_path.display()
-        );
-        exit(1);
-    };
-
-    // Boards was specified from command line (either --boards or --boards-file)
-    let boards = if let Some(boards) = args.boards {
-        if let Some(boards) = boards.boards {
-            if boards_output_path.exists() && !args.overwrite {
-                println!(
-                    "Error: `--boards {}` was specified but `{}` already exists!",
-                    boards.join(" "),
-                    boards_output_path.display()
-                );
-                exit(1);
-            }
-            boards
-        } else if let Some(boards_path) = boards.boards_file {
-            if boards_output_path.exists() {
-                println!(
-                    "Error: `--boards-file {}` was specified but `{}` already exists!",
-                    &boards_path,
-                    boards_output_path.display()
-                );
-                exit(1);
-            }
-            std::fs::read_to_string(boards_path)
-                .expect("Unable to read boards_file")
-                .lines()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-        } else {
-            panic!("Unreachable!")
-        }
-    } else
-    // Otherwise, nothing specified on command line, so check if `boards.txt` exists
-    {
-        let boards_path = dir.join("boards.txt");
-        if boards_path.exists() {
-            std::fs::read_to_string(&boards_path)
-                .expect("Unable to read boards_file")
-                .lines()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-        } else {
-            println!(
-                "No boards or boards-file was specified, and `{}` doesn't exist!",
-                boards_path.display()
-            );
-            exit(1);
-        }
-    };
-
-    // INVARIANT: At this point it is always safe to write "config.json" and
-    // "boards.txt" to disk. This will either result in writing the file
-    // contents to itself (basically a no-op) or overwriting old data.
-
-    let (mut card_config, tree_config, added_lines, removed_lines) =
-        deserialize_configs_from_file(&config_path).expect("Couldn't deserialize config");
-
-    // Update card_config and tree_config with command-line specified data
-    if let Some(range_string) = args.oop_range {
-        let range_result = range_string.parse::<Range>();
-        if let Ok(range) = range_result {
-            card_config.range[0] = range;
-        } else {
-            println!("Couldn't parse OOP Range \"{}\"", range_string);
-            println!("{}", range_result.unwrap_err());
-            exit(1);
-        }
-    }
-
-    if let Some(range_string) = args.ip_range {
-        let range_result = range_string.parse::<Range>();
-        if let Ok(range) = range_result {
-            card_config.range[1] = range;
-        } else {
-            println!("Couldn't parse IP Range \"{}\"", range_string);
-            println!("{}", range_result.unwrap_err());
-            exit(1);
-        }
-    }
-
-    let max_num_iterations = args.max_iterations;
-    let target_exploitability = tree_config.starting_pot as f32 * args.exploitability;
-    println!("Starting pot: {}", tree_config.starting_pot);
-    println!("Effective stacks: {}", tree_config.effective_stack);
-    println!(
-        "Exploitable for {}% of staring pot ({} chips)",
-        args.exploitability * 100.0,
-        target_exploitability
-    );
-
-    // Save config to output directory
-
-    let config_json =
-        serialize_configs_to_json(&card_config, &tree_config, &added_lines, &removed_lines)?;
-
-    let config_contents = serde_json::to_string_pretty(&config_json).map_err(|e| e.to_string())?;
-    std::fs::write(&config_output_path, config_contents).map_err(|e| e.to_string())?;
-
-    let existing_board_files = boards
-        .iter()
-        .map(|b| dir.join(format!("{}.pfs", b.replace(" ", ""))))
-        .filter(|b| b.exists())
-        .collect::<Vec<PathBuf>>();
-
-    let boards_file_contents = boards.join("\n");
-    std::fs::write(&boards_output_path, &boards_file_contents).map_err(|e| e.to_string())?;
-
-    // Check if boards exist
-    if args.halt_on_existing && !existing_board_files.is_empty() {
-        println!("Halting. Board files already exist: ");
-        existing_board_files
-            .iter()
-            .for_each(|b| println!("- {}", b.display()));
-        exit(1);
-    }
-
-    let num_boards = boards.len();
-    println!("\nBeginning Solves\n----------------\n");
-    for (i, board) in boards.iter().enumerate() {
-        println!("\nSolving board {}/{}: {}", i + 1, num_boards, board);
-        let path = dir.join(format!("{}.pfs", board.replace(" ", "")));
-        if !args.overwrite && path.exists() {
-            println!("Sim {} already exists...continuing...", path.display());
-            continue;
-        }
-        let cards = cards_from_str(board)
-            .unwrap_or_else(|e| panic!("Couldn't parse board {}: {}", board, e));
-
-        let mut game = PostFlopGame::with_config(
-            card_config.with_cards(cards).unwrap(),
-            ActionTree::new(tree_config.clone()).unwrap(),
-        )
-        .unwrap();
-        let mem_usage = game.memory_usage();
-        let mem_usage_mb = (mem_usage.0 as f64) / (1024 * 1024) as f64;
-
-        println!("Memory usage: {:5.2} MB", mem_usage_mb);
-
-        game.allocate_memory(false);
-        solve(&mut game, max_num_iterations, target_exploitability, true);
-        game.set_target_storage_mode(TARGET_STORAGE_MODE).unwrap();
-        if path.exists() {
-            println!("Overwriting save at {}", path.display());
-        }
-        match save_data_to_file(&game, "batch solve", &path, None) {
-            Ok(_) => println!("Saved to {}", path.display()),
-            Err(_) => panic!("Unable to save to {:?}", &path),
-        }
-    }
     Ok(())
-}
-
-fn setup_output_directory(dir: &Path) -> Result<(), String> {
-    if dir.exists() {
-        if !dir.is_dir() {
-            panic!(
-                "output directory {} exists but is not a directory",
-                dir.to_str().unwrap()
-            );
-        }
-        Ok(())
-    } else {
-        std::fs::create_dir_all(dir).map_err(|_| "Couldn't create dir".to_string())
-    }
 }
