@@ -31,7 +31,7 @@ struct SolveDBMetadata {
     /// Map from flop to solve file metadata
     solves: HashMap<String, Vec<SolveMetadata>>,
     path: PathBuf,
-    // TODO add a list of stored config files
+    configs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,6 +169,23 @@ fn get_existing_solve_metadata<'a>(
     Ok(None)
 }
 
+fn get_existing_config(
+    metadata: &SolveDBMetadata,
+    config: &SolveConfig,
+) -> Result<Option<String>, String> {
+    for existing_config_file in &metadata.configs {
+        let existing_config =
+            serde_read::<SolveConfig>(&metadata.path.join(&existing_config_file))?;
+
+        // TODO should I instead do &existing_config == config?
+        if existing_config == *config {
+            return Ok(Some(existing_config_file.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
 fn canonicalize_board(board: &str) -> Result<String, String> {
     // Reverse b/c flop_from_str sorts flop, and we want high cards first
     Ok(flop_from_str(board)?
@@ -183,15 +200,19 @@ fn main() -> Result<(), String> {
     let args = Args::parse();
     let dir = PathBuf::from(args.dir);
 
-    /* ASSUMTIONS */
+    /**************************************** ASSUMTIONS ****************************************/
     /*
      * The output dir exists, and is empty if it does not contain the SDB metadata file.
+     *
      * There are no directories within dir (i.e. everything is a file in the SDB)
+     *
      * Files within dir are _only_ edited by this program.
+     *
      * This binary is run atomically (obviously unrealistic, need to peel this back later).
+     *** (This assumption is partly relaxed already b/c we save the metadata after each update)
      *** Need to be particularly careful about overwriting metadata before all solves/configs are written.
      */
-    /**************/
+    /********************************************************************************************/
 
     // Make a new name for this solve
     let solve_name = get_fresh_name(&dir).expect("Can't read from SDB directory");
@@ -208,6 +229,7 @@ fn main() -> Result<(), String> {
         SolveDBMetadata {
             solves: HashMap::new(),
             path: dir.clone().canonicalize().unwrap(),
+            configs: Vec::new(),
         }
     };
 
@@ -242,16 +264,22 @@ fn main() -> Result<(), String> {
         == dir.canonicalize().unwrap()
         && config == original_config
     {
-        // Case where no save is necessary
+        // Case where specified config is already in SDB
         config_read_path
             .file_name()
             .expect("Config path should not end in \"..\"")
             .to_str()
             .expect("Config path should be UTF-8 encodable")
             .to_string()
+    } else if let Some(existing_config_file) = get_existing_config(&metadata, &config)? {
+        // Case where specified config is equivalent to one in SDB
+        existing_config_file
     } else {
+        let file_name = format!("{solve_name}{CONFIG_FILE_EXTENSION}");
+
+        // Write the config file
         std::fs::write(
-            dir.join(format!("{solve_name}{CONFIG_FILE_EXTENSION}")),
+            dir.join(&file_name),
             serde_json::to_string_pretty(&config).expect("Could not serialize config"),
         )
         .map_err(|e| {
@@ -261,7 +289,16 @@ fn main() -> Result<(), String> {
                     .display(),
             )
         })?;
-        format!("{solve_name}{CONFIG_FILE_EXTENSION}")
+
+        // Add the config file to the SDB metadata
+        metadata.configs.push(file_name.clone());
+        std::fs::write(
+            &metadata_path,
+            serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
+        )
+        .expect("Couldn't write metadata file");
+
+        file_name
     };
 
     // Load boards and canonicalize the strings
