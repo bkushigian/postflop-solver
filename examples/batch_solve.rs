@@ -19,8 +19,8 @@ const CONFIG_FILE_EXTENSION: &str = ".cfg";
 // TODO make this an option
 const TARGET_STORAGE_MODE: BoardState = BoardState::Turn;
 
-fn get_fresh_name(dir: &PathBuf) -> Result<String, std::io::Error> {
-    Ok(format!("solve{}", std::fs::read_dir(dir)?.count()))
+fn get_fresh_name(metadata: &SolveDBMetadata) -> String {
+    format!("solve{}", metadata.nonce)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +32,7 @@ struct SolveDBMetadata {
     solves: HashMap<String, Vec<SolveMetadata>>,
     path: PathBuf,
     configs: Vec<String>,
+    nonce: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,7 +80,7 @@ struct Args {
 
     /// Directory representing the solve DB
     #[arg(short, long, default_value = ".")]
-    dir: String,
+    dir: PathBuf,
 
     /// Max number of iterations to run
     #[arg(short = 'n', long, default_value = "1000")]
@@ -196,6 +197,18 @@ fn canonicalize_board(board: &str) -> Result<String, String> {
         .join(""))
 }
 
+/// Persist the metadata
+/// # Panics
+/// Panics if the metadata cannot be serialized.
+/// Also panics if the metadata file cannot be written to.
+fn persist_metadata(metadata: &SolveDBMetadata) {
+    std::fs::write(
+        &metadata.path.join(METADATA_FILENAME),
+        serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
+    )
+    .expect("Couldn't write metadata file");
+}
+
 fn main() -> Result<(), String> {
     let args = Args::parse();
     let dir = PathBuf::from(args.dir);
@@ -214,9 +227,6 @@ fn main() -> Result<(), String> {
      */
     /********************************************************************************************/
 
-    // Make a new name for this solve
-    let solve_name = get_fresh_name(&dir).expect("Can't read from SDB directory");
-
     // Get the solve DB metadata, if it exists.
     // Otherwise, create the solve DB
     let metadata_path = dir.join(METADATA_FILENAME);
@@ -224,14 +234,24 @@ fn main() -> Result<(), String> {
         .try_exists()
         .map_err(|e| format!("Error checking SDB metadata file path existence: {e:?}"))?
     {
-        serde_read(&metadata_path)?
+        let mut new_metadata: SolveDBMetadata = serde_read(&metadata_path)?;
+
+        // Update the nonce, and write out the metadata w/ new nonce
+        new_metadata.nonce += 1;
+        persist_metadata(&new_metadata);
+
+        new_metadata
     } else {
         SolveDBMetadata {
             solves: HashMap::new(),
             path: dir.clone().canonicalize().unwrap(),
             configs: Vec::new(),
+            nonce: 0,
         }
     };
+
+    // Make a new name for this solve
+    let solve_name = get_fresh_name(&metadata);
 
     // Load config
     let config_read_path = args.config;
@@ -292,11 +312,7 @@ fn main() -> Result<(), String> {
 
         // Add the config file to the SDB metadata
         metadata.configs.push(file_name.clone());
-        std::fs::write(
-            &metadata_path,
-            serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
-        )
-        .expect("Couldn't write metadata file");
+        persist_metadata(&metadata);
 
         file_name
     };
@@ -405,11 +421,7 @@ fn main() -> Result<(), String> {
             .entry(board)
             .or_insert(Vec::new())
             .push(board_metadata);
-        std::fs::write(
-            &metadata_path,
-            serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
-        )
-        .expect("Couldn't write metadata file");
+        persist_metadata(&metadata);
     }
 
     Ok(())
