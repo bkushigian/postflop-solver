@@ -1,4 +1,8 @@
 use std::{
+    collections::HashMap,
+    error::Error,
+    fs::File,
+    io::BufReader,
     path::{Path, PathBuf},
     process::exit,
 };
@@ -6,8 +10,67 @@ use std::{
 use clap::Parser;
 use postflop_solver::{
     cards_from_str, deserialize_configs_from_file, save_data_to_file, serialize_configs_to_json,
-    solve, ActionTree, BoardState, PostFlopGame, Range,
+    solve, Action, ActionTree, BoardState, CardConfig, PostFlopGame, Range, TreeConfig,
 };
+use serde::{Deserialize, Serialize};
+
+const METADATA_FILENAME: &str = "meta.sdb";
+const SOLVE_FILE_EXTENSION: &str = ".pfs";
+const CONFIG_FILE_EXTENSION: &str = ".cfg";
+
+// TODO make this an option
+const TARGET_STORAGE_MODE: BoardState = BoardState::Turn;
+
+fn get_fresh_name(dir: &PathBuf) -> Result<String, std::io::Error> {
+    Ok(format!("solve{:?}", std::fs::read_dir(dir)?.count()))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SolveDBMetadata {
+    // TODO is it ok to just map filename to SolveMetadata?
+    // Also, could just do list of SolveMetadata
+    /// Map from flop to solve file metadata
+    solves: HashMap<String, Vec<SolveMetadata>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SolveMetadata {
+    // name: Option<String>,
+    path: String,
+    config: String,
+    save_state: BoardState,
+}
+
+/*
+#[derive(Debug, Serialize, Deserialize)]
+enum SolveConfig {
+    File(PathBuf),
+    Object(SolveConfigData),
+} */
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SolveConfig {
+    // name: Option<String>,
+    card_config: CardConfig,
+    // NOTE: For now, just manually ignore the flop in the config
+    tree_config: TreeConfig,
+    added_lines: Vec<Vec<Action>>,
+    removed_lines: Vec<Vec<Action>>,
+}
+
+/*
+impl SolveConfig {
+    fn to_config_data(self) -> Result<SolveConfigData, Box<dyn Error>> {
+        match self {
+            SolveConfig::Object(d) => Ok(d),
+            SolveConfig::File(path_buf) => {
+                let file = File::open(path_buf)?;
+                let reader = BufReader::new(file);
+                Ok(serde_json::from_reader(reader)?)
+            }
+        }
+    }
+} */
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -19,7 +82,7 @@ struct Args {
     #[clap(flatten)]
     boards: Option<Boards>,
 
-    /// Directory to output solves to
+    /// Directory representing the solve DB
     #[arg(short, long, default_value = ".")]
     dir: String,
 
@@ -63,12 +126,123 @@ struct Boards {
     boards: Option<Vec<String>>,
 }
 
+impl Boards {
+    fn as_list(self) -> Result<Vec<String>, std::io::Error> {
+        if let Some(b) = self.boards {
+            Ok(b)
+        } else if let Some(bf) = self.boards_file {
+            Ok(std::fs::read_to_string(bf)?
+                .lines()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>())
+        } else {
+            panic!("Boards struct contains no boards!")
+        }
+    }
+}
+
 fn main() -> Result<(), String> {
     let args = Args::parse();
-
-    // Create output directory if needed. Check if ".pfs" files exist, and if so abort
     let dir = PathBuf::from(args.dir);
-    setup_output_directory(&dir)?;
+
+    /* ASSUMTIONS */
+    /*
+     * The output dir exists, and is empty if it does not contain the SDB.
+     * This binary is run atomically (obviously unrealistic, need to peel this back later).
+     *** Need to be particularly careful about overwriting metadata before all solves/configs are written.
+     */
+    /**************/
+
+    // Make a new name for this solve
+    let solve_name = get_fresh_name(&dir).expect("Can't read from SDB directory");
+
+    // Get the solve DB metadata, if it exists.
+    // Otherwise, create the solve DB
+    let metadata_path = dir.join(METADATA_FILENAME);
+    let mut metadata = if metadata_path
+        .try_exists()
+        .map_err(|e| format!("Error checking SDB metadata file path existence: {e:?}"))?
+    {
+        let file = File::open(&metadata_path)
+            .map_err(|e| format!("Error when opening SDB metadata file: {e:?}"))?;
+        let reader = BufReader::new(file);
+        serde_json::from_reader(reader)
+            .map_err(|e| format!("Error when deserializing SDB metadata file: {e:?}"))?
+    } else {
+        SolveDBMetadata {
+            solves: HashMap::new(),
+        }
+    };
+
+    // Load config
+    let config_read_path = args.config.unwrap(); // TODO make config path non-optional
+    let config: SolveConfig = {
+        let file = File::open(&config_read_path)
+            .map_err(|e| format!("Error when opening config file: {e:?}"))?;
+        let reader = BufReader::new(file);
+        serde_json::from_reader(reader)
+            .map_err(|e| format!("Error when deserializing config file: {e:?}"))?
+    };
+
+    // TODO could take in config from cmdline somehow here...
+
+    // Copy config to SDB (if not already contained in SDB)
+    if Path::new(&config_read_path)
+        .parent()
+        .unwrap()
+        .canonicalize()
+        .unwrap()
+        != dir.canonicalize().unwrap()
+    {
+        std::fs::write(
+            dir.join(&solve_name).join(CONFIG_FILE_EXTENSION),
+            serde_json::to_string_pretty(&config).expect("Could not serialize config"),
+        )
+        .expect("Could not write config file")
+    }
+
+    // Load boards
+    // TODO
+    let boards: Vec<String> = vec![];
+
+    // Check that the requested solves don't already exist
+    // TODO currently this check could be slow with a large number of existing & requested solves
+    // NOTE/TODO: For now, only checking that to see if the config files are the same
+    if args.halt_on_existing {}
+
+    // Do the solving
+    // TODO
+
+    // Update the SDB metadata
+    for board in boards {
+        let board_metadata = SolveMetadata {
+            // TODO make this a function
+            path: format!("{solve_name:?}{board:?}{SOLVE_FILE_EXTENSION:?}"),
+            config: format!("{solve_name:?}{CONFIG_FILE_EXTENSION:?}"),
+            save_state: TARGET_STORAGE_MODE,
+        };
+        metadata
+            .solves
+            .entry(board)
+            .or_insert(Vec::new())
+            .push(board_metadata);
+    }
+    std::fs::write(
+        metadata_path,
+        serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
+    )
+    .expect("Couldn't write metadata file");
+
+    /*
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     */
 
     // Set up output paths for both configs and boards. These will be stored in
     // the solved database directory. We want to check to see if there will be a
@@ -234,7 +408,7 @@ fn main() -> Result<(), String> {
 
         game.allocate_memory(false);
         solve(&mut game, max_num_iterations, target_exploitability, true);
-        game.set_target_storage_mode(BoardState::Turn).unwrap();
+        game.set_target_storage_mode(TARGET_STORAGE_MODE).unwrap();
         if path.exists() {
             println!("Overwriting save at {}", path.display());
         }
