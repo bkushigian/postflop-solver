@@ -45,5 +45,7 @@
     "merging_threshold": 0.1,
     "rake_cap": 0.0,
     "rake_rate": 0.0
-  }
+  },
+  "added_lines": [],
+  "removed_lines": []
 }
