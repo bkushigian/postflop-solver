@@ -158,7 +158,7 @@ where
 ///     river: NOT_DEALT,
 /// };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "bincode", derive(Decode, Encode))]
 pub struct CardConfig {
     /// Initial range of each player.

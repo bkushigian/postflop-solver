@@ -7,10 +7,10 @@ use std::{
 
 use clap::Parser;
 use postflop_solver::{
-    cards_from_str, save_data_to_file, solve, Action, ActionTree, BoardState, CardConfig,
-    PostFlopGame, Range, TreeConfig,
+    card_to_string, cards_from_str, flop_from_str, save_data_to_file, solve, Action, ActionTree,
+    BoardState, CardConfig, PostFlopGame, Range, TreeConfig,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 const METADATA_FILENAME: &str = "meta.sdb";
 const SOLVE_FILE_EXTENSION: &str = ".pfs";
@@ -20,18 +20,21 @@ const CONFIG_FILE_EXTENSION: &str = ".cfg";
 const TARGET_STORAGE_MODE: BoardState = BoardState::Turn;
 
 fn get_fresh_name(dir: &PathBuf) -> Result<String, std::io::Error> {
-    Ok(format!("solve{:?}", std::fs::read_dir(dir)?.count()))
+    Ok(format!("solve{}", std::fs::read_dir(dir)?.count()))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SolveDBMetadata {
-    // TODO is it ok to just map filename to SolveMetadata?
-    // Also, could just do list of SolveMetadata
+    // TODO do we like this layout?
+    // Useful for checking existence of solves.
+    // Could instead just do list of SolveMetadata.
     /// Map from flop to solve file metadata
     solves: HashMap<String, Vec<SolveMetadata>>,
+    path: PathBuf,
+    // TODO add a list of stored config files
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SolveMetadata {
     // name: Option<String>,
     path: String,
@@ -39,14 +42,29 @@ struct SolveMetadata {
     save_state: BoardState,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SolveConfig {
     // name: Option<String>,
     // NOTE: For now, just manually ignore the flop in the config
+    // The correct solution might be to store ranges instead of the whole CardConfig
     card_config: CardConfig,
     tree_config: TreeConfig,
     added_lines: Vec<Vec<Action>>,
     removed_lines: Vec<Vec<Action>>,
+}
+
+impl PartialEq for SolveConfig {
+    fn eq(&self, other: &Self) -> bool {
+        CardConfig {
+            flop: [0; 3],
+            ..self.card_config
+        } == CardConfig {
+            flop: [0; 3],
+            ..other.card_config
+        } && self.tree_config == other.tree_config
+            && self.added_lines == other.added_lines
+            && self.removed_lines == other.removed_lines
+    }
 }
 
 /// Simple program to greet a person
@@ -54,7 +72,7 @@ struct SolveConfig {
 #[command(version, about, long_about = None)]
 struct Args {
     /// Path to configuration file
-    config: String,
+    config: PathBuf,
 
     #[clap(flatten)]
     boards: Boards,
@@ -96,7 +114,7 @@ struct Args {
 struct Boards {
     /// Path to a file containing a list of boards
     #[clap(long)]
-    boards_file: Option<String>,
+    boards_file: Option<PathBuf>,
 
     /// Specify the boards on command line
     #[clap(long, num_args=1..)]
@@ -118,17 +136,47 @@ impl Boards {
     }
 }
 
+fn serde_read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
+    let file = File::open(path).map_err(|e| format!("Error reading from file {path:?}:\n{e:?}"))?;
+    let reader = BufReader::new(file);
+    serde_json::from_reader(reader)
+        .map_err(|e| format!("Error deserializing file {path:?}:\n{e:?}"))
+}
+
+/// Determines if solve exists for a board (with the config at config_file_name)
 fn get_existing_solve_metadata<'a>(
     metadata: &'a SolveDBMetadata,
     board: &str,
     config_file_name: &str,
-) -> Option<(&'a SolveMetadata, usize)> {
-    for (i, data) in metadata.solves[board].iter().enumerate() {
-        if data.config == config_file_name {
-            return Some((data, i));
+) -> Result<Option<(&'a SolveMetadata, usize)>, String> {
+    // Return None if metadata doesn't contain any solves for the board
+    if !metadata.solves.contains_key(board) {
+        return Ok(None);
+    }
+
+    // Check if any solve data for the board shares the same config
+    for (i, data) in metadata.solves.get(board).unwrap().iter().enumerate() {
+        // If files are the same, assume the data is the same
+        // Otherwise, need to read the files and check the data
+        if data.config == config_file_name
+            || serde_read::<SolveConfig>(&metadata.path.join(&data.config))?
+                == serde_read::<SolveConfig>(&metadata.path.join(config_file_name))?
+        {
+            return Ok(Some((data, i)));
         }
     }
-    None
+
+    Ok(None)
+}
+
+fn canonicalize_board(board: &str) -> Result<String, String> {
+    // Reverse b/c flop_from_str sorts flop, and we want high cards first
+    Ok(flop_from_str(board)?
+        .into_iter()
+        .rev()
+        .map(|c| card_to_string(c))
+        .collect::<Result<Vec<String>, String>>()?
+        .join(""))
 }
 
 fn main() -> Result<(), String> {
@@ -137,8 +185,9 @@ fn main() -> Result<(), String> {
 
     /* ASSUMTIONS */
     /*
-     * The output dir exists, and is empty if it does not contain the SDB.
+     * The output dir exists, and is empty if it does not contain the SDB metadata file.
      * There are no directories within dir (i.e. everything is a file in the SDB)
+     * Files within dir are _only_ edited by this program.
      * This binary is run atomically (obviously unrealistic, need to peel this back later).
      *** Need to be particularly careful about overwriting metadata before all solves/configs are written.
      */
@@ -154,91 +203,84 @@ fn main() -> Result<(), String> {
         .try_exists()
         .map_err(|e| format!("Error checking SDB metadata file path existence: {e:?}"))?
     {
-        let file = File::open(&metadata_path)
-            .map_err(|e| format!("Error when opening SDB metadata file: {e:?}"))?;
-        let reader = BufReader::new(file);
-        serde_json::from_reader(reader)
-            .map_err(|e| format!("Error when deserializing SDB metadata file: {e:?}"))?
+        serde_read(&metadata_path)?
     } else {
         SolveDBMetadata {
             solves: HashMap::new(),
+            path: dir.clone().canonicalize().unwrap(),
         }
     };
 
     // Load config
     let config_read_path = args.config;
-    let mut config: SolveConfig = {
-        let file = File::open(&config_read_path)
-            .map_err(|e| format!("Error when opening config file: {e:?}"))?;
-        let reader = BufReader::new(file);
-        serde_json::from_reader(reader)
-            .map_err(|e| format!("Error when deserializing config file: {e:?}"))?
-    };
+    let mut config: SolveConfig = serde_read(&config_read_path)?;
 
-    // TODO could take in config from cmdline somehow here...
+    // original_config is used to see if config was changed by CLI args
+    let original_config = config.clone();
 
     // Update config with command-line specified data
-    // TODO can we geet rid of these clones?
-    if let Some(range_string) = args.oop_range.clone() {
+    if let Some(range_string) = args.oop_range {
         config.card_config.range[0] = range_string
             .parse::<Range>()
             .map_err(|e| format!("Couldn't parse OOP Range {range_string:?}, got error:\n{e:?}"))?;
     }
 
-    if let Some(range_string) = args.ip_range.clone() {
+    if let Some(range_string) = args.ip_range {
         config.card_config.range[1] = range_string
             .parse::<Range>()
             .map_err(|e| format!("Couldn't parse IP Range {range_string:?}, got error:\n{e:?}"))?;
     }
 
+    // TODO more config CLI options...
+
     // Save config to SDB
-    // Unless it's already in the SDB AND no CLI args were provided
+    // Unless it's already in the SDB AND no CLI args for the config were provided
     // Need to keep track of the config path though, for storing metadata
-    // TODO is there a better way to check if the given config is in the SDB?
-    let config_file_name: String = if Path::new(&config_read_path)
-        .parent()
-        .unwrap()
-        .canonicalize()
-        .unwrap()
+    // TODO is there a better way to check if the given config is in the SDB? Might be usful to store a list of all configs
+    // Could instead require that the config is already in the SDB, and make a differt command for creating a config.
+    let config_file_name: String = if config_read_path.parent().unwrap().canonicalize().unwrap()
         == dir.canonicalize().unwrap()
-        && args.oop_range.is_none()
-        && args.ip_range.is_none()
+        && config == original_config
     {
         // Case where no save is necessary
-        // TODO better way of doing this?
-        Path::new(&config_read_path)
+        config_read_path
             .file_name()
-            .unwrap()
+            .expect("Config path should not end in \"..\"")
             .to_str()
-            .unwrap()
+            .expect("Config path should be UTF-8 encodable")
             .to_string()
     } else {
         std::fs::write(
-            dir.join(&solve_name).join(CONFIG_FILE_EXTENSION),
+            dir.join(format!("{solve_name}{CONFIG_FILE_EXTENSION}")),
             serde_json::to_string_pretty(&config).expect("Could not serialize config"),
         )
-        .expect("Could not write config file");
-        format!("{solve_name:?}{CONFIG_FILE_EXTENSION:?}")
+        .map_err(|e| {
+            format!(
+                "Could not write config file {:?}, got error:\n{e:?}",
+                dir.join(format!("{solve_name}{CONFIG_FILE_EXTENSION}"))
+                    .display(),
+            )
+        })?;
+        format!("{solve_name}{CONFIG_FILE_EXTENSION}")
     };
 
-    // Load boards
-    // TODO need to canonicalize boards
-    let boards: Vec<String> = args
+    // Load boards and canonicalize the strings
+    let boards = args
         .boards
         .as_list()
-        .map_err(|e| format!("Error getting boards: {e:?}"))?;
-
-    // Define fn for determining of solve exists for a board (with the config at config_file_name)
+        .map_err(|e| format!("Error getting boards: {e:?}"))?
+        .iter()
+        .map(|b| canonicalize_board(b))
+        .collect::<Result<Vec<String>, String>>()?;
 
     // Define fn for getting each solve path
-    let solve_file_name = |board: &str| format!("{solve_name:?}{board:?}{SOLVE_FILE_EXTENSION:?}");
+    let solve_file_name = |board: &str| format!("{solve_name}{board}{SOLVE_FILE_EXTENSION}");
 
     // Check that the requested solves don't already exist
     // TODO currently this check could be slow with a large number of existing & requested solves
-    // NOTE/TODO: For now, only checking that to see if the config files are the same
     if args.halt_on_existing {
         for board in &boards {
-            if get_existing_solve_metadata(&metadata, board, &config_file_name).is_some() {
+            if get_existing_solve_metadata(&metadata, board, &config_file_name)?.is_some() {
                 return Err(format!(
                     "Solve already exists for board {board:?} with config {config_file_name}!"
                 ));
@@ -262,23 +304,22 @@ fn main() -> Result<(), String> {
     // Begin the solving loop
     let num_boards = boards.len();
     println!("\nBeginning Solves\n----------------\n");
-    for (i, board) in boards.iter().enumerate() {
+    for (i, board) in boards.into_iter().enumerate() {
         println!("\nSolving board {}/{}: {}", i + 1, num_boards, board);
 
         // Check for existence
         if !args.overwrite
-            && get_existing_solve_metadata(&metadata, board, &config_file_name).is_some()
+            && get_existing_solve_metadata(&metadata, &board, &config_file_name)?.is_some()
         {
             println!(
-                "Sim for {:?} with config {:?} already exists...continuing...",
-                board, config_file_name,
+                "Sim for {board} with config {config_file_name} already exists...continuing..."
             );
             continue;
         }
 
         // Construct path, cards, game, etc.
-        let path = dir.join(solve_file_name(board));
-        let cards = cards_from_str(board)
+        let path = dir.join(solve_file_name(&board));
+        let cards = cards_from_str(&board)
             .unwrap_or_else(|e| panic!("Couldn't parse board {}: {}", board, e));
         let mut game = PostFlopGame::with_config(
             card_config.with_cards(cards).unwrap(),
@@ -297,14 +338,14 @@ fn main() -> Result<(), String> {
 
         // If args.overwrite is set and save already exists, remove the existing save
         if let Some((game_metadata, index)) =
-            get_existing_solve_metadata(&metadata, board, &config_file_name)
+            get_existing_solve_metadata(&metadata, &board, &config_file_name)?
         {
             println!("Overwriting save at {}", game_metadata.path);
             remove_file(dir.join(&game_metadata.path))
                 .map_err(|e| format!("Error removing existing solve file: {e:?}"))?;
             metadata
                 .solves
-                .get_mut(board)
+                .get_mut(&board)
                 .unwrap_or_else(|| panic!("Metadata unexpectedly did not contain board {board}."))
                 .remove(index);
         }
@@ -314,10 +355,9 @@ fn main() -> Result<(), String> {
             Ok(_) => println!("Saved to {}", path.display()),
             Err(_) => panic!("Unable to save to {:?}", &path),
         }
-    }
 
-    // Update the SDB metadata
-    for board in boards {
+        // Update the SDB metadata
+        // Done each iteration to keep track of progress
         let board_metadata = SolveMetadata {
             path: solve_file_name(&board),
             config: config_file_name.clone(),
@@ -328,12 +368,12 @@ fn main() -> Result<(), String> {
             .entry(board)
             .or_insert(Vec::new())
             .push(board_metadata);
+        std::fs::write(
+            &metadata_path,
+            serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
+        )
+        .expect("Couldn't write metadata file");
     }
-    std::fs::write(
-        metadata_path,
-        serde_json::to_string_pretty(&metadata).expect("Could not serialize metadata"),
-    )
-    .expect("Couldn't write metadata file");
 
     Ok(())
 }
