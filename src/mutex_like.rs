@@ -3,10 +3,10 @@ use std::ops::{Deref, DerefMut};
 
 #[cfg(feature = "bincode")]
 use bincode::{
+    BorrowDecode, Decode, Encode,
     de::{BorrowDecoder, Decoder},
     enc::Encoder,
     error::{DecodeError, EncodeError},
-    BorrowDecode, Decode, Encode,
 };
 
 /// Mutex-like wrapper, but it actually does not perform any locking.
@@ -99,17 +99,19 @@ impl<T: Encode> Encode for MutexLike<T> {
 }
 
 #[cfg(feature = "bincode")]
-impl<T: Decode> Decode for MutexLike<T> {
+impl<Context, T: Decode<Context>> Decode<Context> for MutexLike<T> {
     #[inline]
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+    fn decode<D: Decoder<Context = Context>>(decoder: &mut D) -> Result<Self, DecodeError> {
         Ok(Self::new(T::decode(decoder)?))
     }
 }
 
 #[cfg(feature = "bincode")]
-impl<'de, T: BorrowDecode<'de>> BorrowDecode<'de> for MutexLike<T> {
+impl<'de, Context, T: BorrowDecode<'de, Context>> BorrowDecode<'de, Context> for MutexLike<T> {
     #[inline]
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
+    fn borrow_decode<D: BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D,
+    ) -> Result<Self, DecodeError> {
         Ok(Self::new(T::borrow_decode(decoder)?))
     }
 }
